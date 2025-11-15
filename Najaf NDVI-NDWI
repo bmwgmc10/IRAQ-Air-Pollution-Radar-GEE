@@ -6,8 +6,8 @@ Map.centerObject(roi, 10);
 Map.addLayer(roi, {color: 'red'}, 'ROI');
 
 // فلترة لسنة وشهر محدد. مثال: حزيران 2023
-var start = '2022-08-01';
-var end   = '2022-08-30';
+var start = '2023-12-01';
+var end   = '2023-12-30';
 
 // دالة قناع السحب والظلال لاندسات 8/9 L2
 function maskL2(img) {
