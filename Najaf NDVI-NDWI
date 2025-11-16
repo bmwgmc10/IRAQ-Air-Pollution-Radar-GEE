@@ -1,13 +1,13 @@
 
-// استدعاء الشيب فايل بعد رفعه للأصول
+
 var roi = ee.FeatureCollection('projects/moh-proj/assets/Najaf-shp');
 
 Map.centerObject(roi, 10);
 Map.addLayer(roi, {color: 'red'}, 'ROI');
 
-// فلترة لسنة وشهر محدد. مثال: حزيران 2023
-var start = '2024-12-01';
-var end   = '2024-12-30';
+
+var start = '2025-05-01';
+var end   = '2025-05-30';
 
 // دالة قناع السحب والظلال لاندسات 8/9 L2
 function maskL2(img) {
