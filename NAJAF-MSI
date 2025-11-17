@@ -1,0 +1,121 @@
+// 1. تحديد المتغيرات الأساسية 🌍
+// المسار لملف الشيب فايل لمنطقة الدراسة
+var studyAreaPath = 'projects/moh-proj/assets/Najaf-shp';
+var geometry = ee.FeatureCollection(studyAreaPath);
+
+// تعريف السنوات ونطاق الشهور
+var START_YEAR = 2016; // البدء من 2015 (البيانات متوفرة من منتصف العام)
+var END_YEAR = 2016;
+var START_MONTH = 12; 
+var END_MONTH = 12;
+
+// اسم مجموعة صور Sentinel-2 L2A (Surface Reflectance)
+var S2_COLLECTION = 'COPERNICUS/S2_SR'; 
+
+// 2. دالة حساب المؤشرات (NDVI و NDWI) 📐
+/**
+ * تحسب مؤشري NDVI و NDWI وتضيفهما كطبقات للصورة.
+ */
+var addIndices = function(image) {
+  // حساب NDVI: (NIR - Red) -> (B8 - B4) / (B8 + B4)
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  // حساب NDWI: (Green - NIR) -> (B3 - B8) / (B3 + B8)
+  var ndwi = image.normalizedDifference(['B3', 'B8']).rename('NDWI');
+
+  // نختار المؤشرات فقط لإجراء التجميع (median)
+  return ndvi.addBands(ndwi);
+};
+
+// 3. الدالة الرئيسية للتجميع والتصدير الفردي 🚀
+var processAndExport = function(year, month) {
+  year = ee.Number(year);
+  month = ee.Number(month);
+  
+  var startDate = ee.Date.fromYMD(year, month, 1);
+  var endDate = startDate.advance(1, 'month');
+
+  // إنشاء مكونات اسم الملف
+  var yearStr = year.format('%d');
+  var monthStr = month.format('%02d');
+  
+  // فلترة المجموعة
+  var filteredCollection = ee.ImageCollection(S2_COLLECTION)
+      .filterDate(startDate, endDate)
+      .filterBounds(geometry)
+      // لا يتم تطبيق cloudMaskS2 بناءً على طلبك
+      .map(addIndices); // حساب المؤشرات لكل صورة في المجموعة
+
+  // تجميع الصور في صورة واحدة شهرية (للمؤشرات فقط)
+  var monthlyComposite = filteredCollection.median().clip(geometry);
+
+  // --- التصدير الفردي لمؤشر NDVI ---
+  var ndviImage = monthlyComposite.select('NDVI');
+  var ndviFileName = ee.String('Najaf_NDVI_').cat(yearStr).cat('_').cat(monthStr);
+
+  Export.image.toDrive({
+    image: ndviImage,
+    description: ndviFileName.getInfo(),
+    folder: 'GEE_Najaf_Exports_NDVI', // مجلد خاص لـ NDVI
+    fileNamePrefix: ndviFileName.getInfo(),
+    scale: 10,
+    region: geometry.geometry(),
+    maxPixels: 1e10 
+  });
+
+  // --- التصدير الفردي لمؤشر NDWI ---
+  var ndwiImage = monthlyComposite.select('NDWI');
+  var ndwiFileName = ee.String('Najaf_NDWI_').cat(yearStr).cat('_').cat(monthStr);
+
+  Export.image.toDrive({
+    image: ndwiImage,
+    description: ndwiFileName.getInfo(),
+    folder: 'GEE_Najaf_Exports_NDWI', // مجلد خاص لـ NDWI
+    fileNamePrefix: ndwiFileName.getInfo(),
+    scale: 10,
+    region: geometry.geometry(),
+    maxPixels: 1e10 
+  });
+};
+
+
+// 4. حلقة التكرار (Loop) لتنفيذ الدالة الرئيسية 🔁
+for (var year = START_YEAR; year <= END_YEAR; year++) {
+  for (var month = START_MONTH; month <= END_MONTH; month++) {
+    // تخطي الأشهر من 1 إلى 6 في 2015 حيث لا تتوفر بيانات Sentinel-2
+    if (year === 2015 && month <= 6) {
+        print('Skipping ' + year + '/' + month + ': Sentinel-2 data not available before July 2015.');
+        continue;
+    }
+    processAndExport(year, month);
+  }
+}
+print('✅ تم جدولة جميع مهام التصدير. يرجى الضغط على "Run" في تبويب Tasks لبدء التحميل. (ستجد مجلدين جديدين في جوجل درايف).');
+
+
+// ---
+// 5. عرض منطقة الدراسة وعرض مثال شهري للتحقق 🗺️
+// ---
+
+// إعداد خصائص العرض للمؤشرات
+var ndviParams = {min: -0.2, max: 0.8, palette: ['ffffe5', 'f7fcb9', 'd9f0a3', 'addd8e', '78c679', '41ab5d', '238443', '005a32']};
+var ndwiParams = {min: -0.5, max: 0.7, palette: ['d9d9d9', '9ecae1', '4292c6', '2171b5', '08519c', '08306b']};
+
+// عرض منطقة الدراسة على الخريطة وتظليلها
+Map.centerObject(geometry, 9);
+Map.addLayer(geometry, {color: 'FF0000'}, 'Najaf Study Area Boundary');
+
+// عرض مثال شهري (أغسطس 2016)
+var exampleYear = 2016;
+var exampleMonth = 8;
+var exampleStart = ee.Date.fromYMD(exampleYear, exampleMonth, 1);
+var exampleEnd = exampleStart.advance(1, 'month');
+
+var exampleComposite = ee.ImageCollection(S2_COLLECTION)
+    .filterDate(exampleStart, exampleEnd)
+    .filterBounds(geometry)
+    .map(addIndices)
+    .median()
+    .clip(geometry);
+
+Map.addLayer(exampleComposite.select('NDVI'), ndviParams, 'Example NDVI (No Cloud Mask) ' + exampleYear + '/' + exampleMonth);
+Map.addLayer(exampleComposite.select('NDWI'), ndwiParams, 'Example NDWI (No Cloud Mask) ' + exampleYear + '/' + exampleMonth);
