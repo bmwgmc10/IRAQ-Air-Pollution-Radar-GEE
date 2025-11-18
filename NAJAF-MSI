@@ -7,7 +7,7 @@ var geometry = ee.FeatureCollection(studyAreaPath);
 var START_YEAR = 2016; // البدء من 2015 (البيانات متوفرة من منتصف العام)
 var END_YEAR = 2016;
 var START_MONTH = 12; 
-var END_MONTH = 12;
+var END_MONTH = 11;
 
 // اسم مجموعة صور Sentinel-2 L2A (Surface Reflectance)
 var S2_COLLECTION = 'COPERNICUS/S2_SR'; 
