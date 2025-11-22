@@ -14,7 +14,7 @@ Map.addLayer(roi, {color: 'FF0000'}, 'Region of Interest');
 // 3) تحديد شهر معيّن في سنة معيّنة (كمثال)
 //---------------------------------------------
 var year  = 2018;
-var month = 6;    // شهر أغسطس 2017 (لضمان وجود البيانات)
+var month = 12;    // شهر أغسطس 2017 (لضمان وجود البيانات)
 
 var start = ee.Date.fromYMD(year, month, 1);
 var end   = start.advance(1, 'month');
