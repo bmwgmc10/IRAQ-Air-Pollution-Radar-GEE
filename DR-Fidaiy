@@ -30,24 +30,23 @@ var geometry = /* color: #ffc82d */ee.Geometry.Polygon(
           [54.033384126421936, 36.829773056712284]]]);
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 /**
- * GEE JavaScript Code المُعدَّل لتحميل (RST, LST, SMI) باستخدام الجيومتري المرسوم
+ * كود GEE النهائي المُصحَّح لحل خطأ SyntaxError
  */
 
+// ----------------------------------------------------
+// 1. الإعداد وتحديد المعلمات والجيومتري
+// ----------------------------------------------------
 // ⚙️ المعلمات
-var YEAR = 2020;
-var MONTH = 1;
+var YEAR = 2025;
+var MONTH = 11
 
 // تحديد تاريخ بداية ونهاية الشهر
 var START_DATE = ee.Date.fromYMD(YEAR, MONTH, 1);
 var END_DATE = START_DATE.advance(1, 'month');
 
-
-// ----------------------------------------------------
-// 🌎 تحديد منطقة الدراسة (Geometry)
-// ⚠️ ملاحظة: 'geometry' هو المتغير الافتراضي الذي ينشئه GEE عند الرسم على الخريطة
-// ----------------------------------------------------
+// 🌎 تحديد منطقة الدراسة (ROI) - استخدام الجيومتري المرسوم
 var roi = geometry; 
-Map.centerObject(roi, 7); // يركز الخريطة على الجيومتري الذي رسمته
+Map.centerObject(roi, 7);
 
 // دالة لتحويل LST من كلفن إلى درجة مئوية
 var scaleLST = function(image) {
@@ -55,58 +54,79 @@ var scaleLST = function(image) {
   return lst_celsius.copyProperties(image, ['system:time_start']);
 };
 
-
 // ----------------------------------------------------
-// 🌡️ 1. معالجة RST و LST (MODIS/MOD11A2)
+// 2. معالجة البيانات وتوحيد النوع (Float32)
 // ----------------------------------------------------
 
+// 🌡️ أ. معالجة RST و LST (MODIS/MOD11A2)
 var lst_collection_modis = ee.ImageCollection('MODIS/061/MOD11A2')
     .filterDate(START_DATE, END_DATE)
     .filterBounds(roi)
     .select('LST_Day_1km');
 
-// حساب المتوسط للشهر
 var lst_image_celsius = lst_collection_modis.map(scaleLST).mean().clip(roi);
 
-// تسمية المتغيرات
-var rst_image = lst_image_celsius.rename('RST'); // Road Surface Temperature
-var lst_image = lst_image_celsius.rename('LST'); // Land Surface Temperature
+// تسمية المتغيرات وتوحيد النوع إلى Float32
+var rst_image = lst_image_celsius.rename('RST').toFloat(); 
+var lst_image = lst_image_celsius.rename('LST').toFloat(); 
 Map.addLayer(rst_image, {min: 20, max: 45, palette: ['blue', 'yellow', 'red']}, 'RST (C)');
 
-
-// ----------------------------------------------------
-// 💧 2. معالجة SMI (SMAP/SPL3SMP_E/005)
-// ----------------------------------------------------
-
+// 💧 ب. معالجة SMI (SMAP/SPL3SMP_E/005)
 var smi_collection = ee.ImageCollection('NASA/SMAP/SPL3SMP_E/005')
     .filterDate(START_DATE, END_DATE)
     .filterBounds(roi)
-    // استخدام النطاق الصحيح لرطوبة التربة صباحاً
-    .select('soil_moisture_am'); 
+    .select('soil_moisture_am');
 
-// حساب متوسط رطوبة التربة للشهر
-var smi_image = smi_collection.mean().rename('SMI').clip(roi);
+// حساب متوسط رطوبة التربة للشهر وتوحيد النوع إلى Float32
+var smi_image = smi_collection.mean().rename('SMI').clip(roi).toFloat(); 
 Map.addLayer(smi_image, {min: 0, max: 0.5, palette: ['brown', 'green']}, 'SMI');
 
-
 // ----------------------------------------------------
-// 🖼️ 3. تجميع البيانات والتصدير
+// 3. التصدير المنفصل إلى Google Drive (باستخدام معلمات صريحة)
 // ----------------------------------------------------
 
-var output_image = rst_image.addBands(lst_image).addBands(smi_image);
+var folder_name = 'GEE_Separate_Exports';
+var base_file_name = 'GEE_Data_' + YEAR + '_' + (MONTH < 10 ? '0' : '') + MONTH;
 
-// أمر التصدير إلى Google Drive
-var file_name = 'GEE_Data_RST_LST_SMI_' + YEAR + '_' + (MONTH < 10 ? '0' : '') + MONTH;
-var folder_name = 'GEE_Exports_Drawn_Geometry';
+// تم إزالة تعريف export_params ككائن منفصل
 
+// 1. تصدير RST
+var file_name_rst = 'RST_' + base_file_name;
 Export.image.toDrive({
-    image: output_image,
-    description: file_name,
+    image: rst_image,
+    description: file_name_rst,
+    // 💡 تم التصحيح: كتابة المعلمات بشكل صريح
     folder: folder_name,
     scale: 1000,
-    // استخدام bounding box للجيومتري المرسوم
-    region: roi.bounds().getInfo(), 
+    region: roi.bounds().getInfo(),
     maxPixels: 1e13
 });
+print("بدأت مهمة تصدير RST: " + file_name_rst);
 
-print("بدأت عملية التصدير. يرجى متابعة علامة تبويب المهام (Tasks).");
+// 2. تصدير LST
+var file_name_lst = 'LST_' + base_file_name;
+Export.image.toDrive({
+    image: lst_image,
+    description: file_name_lst,
+    // 💡 تم التصحيح: كتابة المعلمات بشكل صريح
+    folder: folder_name,
+    scale: 1000,
+    region: roi.bounds().getInfo(),
+    maxPixels: 1e13
+});
+print("بدأت مهمة تصدير LST: " + file_name_lst);
+
+// 3. تصدير SMI
+var file_name_smi = 'SMI_' + base_file_name;
+Export.image.toDrive({
+    image: smi_image,
+    description: file_name_smi,
+    // 💡 تم التصحيح: كتابة المعلمات بشكل صريح
+    folder: folder_name,
+    scale: 1000,
+    region: roi.bounds().getInfo(),
+    maxPixels: 1e13
+});
+print("بدأت مهمة تصدير SMI: " + file_name_smi);
+
+print("\nتم إطلاق 3 مهام تصدير منفصلة. يرجى متابعة علامة تبويب المهام (Tasks).");
