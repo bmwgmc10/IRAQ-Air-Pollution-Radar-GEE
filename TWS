@@ -1,51 +1,44 @@
 // ================ غيّر هنا فقط السنة والشهر ================
-var year  = 2015;    // غيّر السنة
-var month = 1;        // غيّر الشهر (1 إلى 12)
+var year  = 2016;
+var month = 12;   // حتى لو مايو 2015 → رح يظهر مربع التنزيل
 // =======================================================
 
-// تحويل الشهر إلى صيغة 01, 02, ..., 12
-var monthStr = (month < 10 ? '0' : '') + month;
+var monthStr = month < 10 ? '0' + month : month;
 
-// منطقة الدراسة (الشيب فايل اللي رفعتها)
 var studyArea = ee.FeatureCollection('projects/moh-proj/assets/Najaf-shp');
 var aoi = studyArea.geometry();
 
-// تاريخ الشهر
-var startDate = ee.Date.fromYMD(year, month, 1);
-var endDate   = startDate.advance(1, 'month');
+var start = ee.Date.fromYMD(year, month, 1);
+var end   = start.advance(1, 'month');
 
-// تحميل بيانات GRACE/GRACE-FO MASCON (الأفضل والأحدث)
-var grace = ee.ImageCollection('NASA/GRACE/MASS_GRIDS_V04/MASCON_CRI')
-             .filterDate(startDate, endDate)
-             .first();   // كل شهر صورة واحدة فقط
+var graceCol = ee.ImageCollection('NASA/GRACE/MASS_GRIDS_V04/MASCON_CRI')
+                 .filterDate(start, end);
 
-// طباعة أسماء الباندات المتاحة للتأكد
-print('أسماء الباندات المتاحة في GRACE:', grace.bandNames());
+var graceImg = graceCol.first();
 
-// اختيار الباند الصحيح (lwe_thickness هو الباند الصحيح للسما المائية المكافئة بالسنتيمتر)
-var twsthickness = grace.select('lwe_thickness');   // وحدة: cm
+// صورة وهمية بقيمة -9999 إذا ما في بيانات
+var emptyImg = ee.Image.constant(-9999).rename('lwe_thickness').clip(aoi);
 
-var twsthickness_clip = twsthickness.clip(aoi);
+// نختار الصورة الحقيقية أو الوهمية
+var tws = ee.Image(ee.Algorithms.If(graceImg, graceImg.select('lwe_thickness'), emptyImg));
 
-// -------------------- رسم حدود منطقة الدراسة --------------------
+// قص على النجف
+var tws_clip = tws.clip(aoi);
+
+// رسم حدود النجف دايمًا
 Map.centerObject(aoi, 9);
-Map.addLayer(studyArea.style({color: 'red', fillColor: '00000000', width: 3}), 
-             {}, 'حدود منطقة النجف');   // خط أحمر واضح جدًا
-
-// -------------------- عرض TWS --------------------
-Map.addLayer(twsthickness_clip, {
-  min: -30,
-  max: 30,
-  palette: ['8B0000','FF4500','FFA500','FFFF00','00FF00','00FFFF','0000FF','000080']
+Map.addLayer(studyArea.style({color: 'red', fillColor: '00000000', width: 3}), {}, 'حدود النجف');
+Map.addLayer(tws_clip.updateMask(tws_clip.neq(-9999)), {
+  min: -30, max: 30,
+  palette: ['darkred','red','orange','yellow','lightgreen','cyan','blue','darkblue']
 }, 'TWS ' + year + '-' + monthStr);
 
-// -------------------- طباعة المعلومات --------------------
-print('TWS لشهر:', year + '-' + monthStr);
-print('الصورة المستخدمة:', grace);
+print('الشهر:', year + '-' + monthStr);
+print('البيانات متوفرة؟', graceImg ? 'نعم' : 'لا (تم إنشاء صورة فارغة)' );
 
-// -------------------- التصدير --------------------
+// التصدير دايمًا (حتى لو ما في بيانات) → عشان يظهر المربع
 Export.image.toDrive({
-  image: twsthickness_clip.toFloat(),
+  image: tws_clip.toFloat(),
   description: 'TWS_' + year + '_' + monthStr + '_Najaf',
   folder: 'GRACE_TWS_Najaf',
   fileNamePrefix: 'TWS_' + year + '_' + monthStr + '_Najaf',
@@ -56,5 +49,6 @@ Export.image.toDrive({
   fileFormat: 'GeoTIFF'
 });
 
-print('تم كل شيء!');
-print('الملف الذي سيُحفظ: TWS_' + year + '_' + monthStr + '_Najaf.tif');
+print('تم إنشاء مهمة التصدير بنجاح (ستظهر في تبويب Tasks الآن)');
+print('الملف: TWS_' + year + '_' + monthStr + '_Najaf.tif');
+print('إذا كان الملف كله -9999 → معناه ما كان في بيانات أصلًا');
