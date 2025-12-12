@@ -1,0 +1,60 @@
+// ================ غيّر هنا فقط السنة والشهر ================
+var year  = 2015;    // غيّر السنة
+var month = 1;        // غيّر الشهر (1 إلى 12)
+// =======================================================
+
+// تحويل الشهر إلى صيغة 01, 02, ..., 12
+var monthStr = (month < 10 ? '0' : '') + month;
+
+// منطقة الدراسة (الشيب فايل اللي رفعتها)
+var studyArea = ee.FeatureCollection('projects/moh-proj/assets/Najaf-shp');
+var aoi = studyArea.geometry();
+
+// تاريخ الشهر
+var startDate = ee.Date.fromYMD(year, month, 1);
+var endDate   = startDate.advance(1, 'month');
+
+// تحميل بيانات GRACE/GRACE-FO MASCON (الأفضل والأحدث)
+var grace = ee.ImageCollection('NASA/GRACE/MASS_GRIDS_V04/MASCON_CRI')
+             .filterDate(startDate, endDate)
+             .first();   // كل شهر صورة واحدة فقط
+
+// طباعة أسماء الباندات المتاحة للتأكد
+print('أسماء الباندات المتاحة في GRACE:', grace.bandNames());
+
+// اختيار الباند الصحيح (lwe_thickness هو الباند الصحيح للسما المائية المكافئة بالسنتيمتر)
+var twsthickness = grace.select('lwe_thickness');   // وحدة: cm
+
+var twsthickness_clip = twsthickness.clip(aoi);
+
+// -------------------- رسم حدود منطقة الدراسة --------------------
+Map.centerObject(aoi, 9);
+Map.addLayer(studyArea.style({color: 'red', fillColor: '00000000', width: 3}), 
+             {}, 'حدود منطقة النجف');   // خط أحمر واضح جدًا
+
+// -------------------- عرض TWS --------------------
+Map.addLayer(twsthickness_clip, {
+  min: -30,
+  max: 30,
+  palette: ['8B0000','FF4500','FFA500','FFFF00','00FF00','00FFFF','0000FF','000080']
+}, 'TWS ' + year + '-' + monthStr);
+
+// -------------------- طباعة المعلومات --------------------
+print('TWS لشهر:', year + '-' + monthStr);
+print('الصورة المستخدمة:', grace);
+
+// -------------------- التصدير --------------------
+Export.image.toDrive({
+  image: twsthickness_clip.toFloat(),
+  description: 'TWS_' + year + '_' + monthStr + '_Najaf',
+  folder: 'GRACE_TWS_Najaf',
+  fileNamePrefix: 'TWS_' + year + '_' + monthStr + '_Najaf',
+  region: aoi,
+  scale: 28,
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+print('تم كل شيء!');
+print('الملف الذي سيُحفظ: TWS_' + year + '_' + monthStr + '_Najaf.tif');
