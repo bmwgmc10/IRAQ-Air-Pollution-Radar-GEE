@@ -1,0 +1,88 @@
+// ================ غيّر هنا فقط السنة والشهر ================
+var year  = 2015;    // غيّر السنة (من 1981 إلى الآن)
+var month = 1;       // غيّر الشهر (1 إلى 12)
+// =======================================================
+
+var monthStr = month < 10 ? '0' + month : month;
+
+// منطقة الدراسة (الشيب فايل اللي رفعتها)
+var studyArea = ee.FeatureCollection('projects/moh-proj/assets/Najaf-shp');
+var aoi = studyArea.geometry();
+
+// تاريخ الشهر المطلوب
+var startDate = ee.Date.fromYMD(year, month, 1);
+var endDate   = startDate.advance(1, 'month');
+
+// تحميل بيانات هطول الأمطار الشهرية من CHIRPS (UCSB/CHG) - Daily ثم جمع شهري
+var chirpsDaily = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                    .filterDate(startDate, endDate)
+                    .select('precipitation');
+
+var precipitationMonthly = chirpsDaily.sum();   // إجمالي الهطول الشهري (mm)
+
+// حساب SPI-1 (مؤشر الهطول المعياري لشهر واحد) - تقريبي بسيط وسريع
+// (القيمة الحالية - المتوسط طويل الأمد) / الانحراف المعياري طويل الأمد
+var longTerm = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                 .filter(ee.Filter.calendarRange(1981, 2023, 'year'))  // فترة طويلة الأمد
+                 .filter(ee.Filter.calendarRange(month, month, 'month'));
+
+var ltMean = longTerm.sum().reduce(ee.Reducer.mean());     // متوسط الهطول لنفس الشهر عبر السنين
+var ltStd  = longTerm.sum().reduce(ee.Reducer.stdDev());  // الانحراف المعياري
+
+var spi = precipitationMonthly.subtract(ltMean).divide(ltStd).rename('SPI');
+
+// قص الصور على منطقة النجف
+var precip_clip = precipitationMonthly.clip(aoi);
+var spi_clip    = spi.clip(aoi);
+
+// -------------------- رسم حدود منطقة الدراسة --------------------
+Map.centerObject(aoi, 9);
+Map.addLayer(studyArea.style({color: 'red', fillColor: '00000000', width: 3}), 
+             {}, 'حدود منطقة النجف');
+
+// -------------------- عرض الهطول الشهري --------------------
+Map.addLayer(precip_clip, {
+  min: 0, max: 200,
+  palette: ['white', 'lightblue', 'blue', 'darkblue']
+}, 'هطول الأمطار (mm) ' + year + '-' + monthStr);
+
+// -------------------- عرض SPI --------------------
+Map.addLayer(spi_clip, {
+  min: -3, max: 3,
+  palette: ['#8B0000', '#FF4500', '#FFA500', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF']
+}, 'SPI ' + year + '-' + monthStr);
+
+// -------------------- طباعة المعلومات --------------------
+print('تم تحميل بيانات CHIRPS لشهر:', year + '-' + monthStr);
+print('إجمالي الهطول الشهري (mm):', precipitationMonthly);
+print('SPI-1 (تقريبي):', spi);
+
+// -------------------- تصدير الملفات --------------------
+Export.image.toDrive({
+  image: precip_clip.toFloat(),
+  description: 'Precip_' + year + '_' + monthStr + '_Najaf',
+  folder: 'CHIRPS_Najaf',
+  fileNamePrefix: 'Precip_' + year + '_' + monthStr + '_Najaf',
+  region: aoi,
+  scale: 5566,               // دقة CHIRPS ≈ 0.05 درجة
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+Export.image.toDrive({
+  image: spi_clip.toFloat(),
+  description: 'SPI_' + year + '_' + monthStr + '_Najaf',
+  folder: 'CHIRPS_Najaf',
+  fileNamePrefix: 'SPI_' + year + '_' + monthStr + '_Najaf',
+  region: aoi,
+  scale: 5566,
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+print('تم إنشاء مهمتي تصدير بنجاح');
+print('الملفات:');
+print('Precip_' + year + '_' + monthStr + '_Najaf.tif  → إجمالي الهطول الشهري');
+print('SPI_' + year + '_' + monthStr + '_Najaf.tif     → مؤشر SPI-1');
