@@ -1,0 +1,114 @@
+// ================ غيّر هنا فقط السنة والشهر ================
+var year  = 2017;    // غيّر السنة (من 1950 إلى الآن)
+var month = 2 ;       // غيّر الشهر (1 إلى 12)
+// =======================================================
+
+var monthStr = month < 10 ? '0' + month : month;
+
+// منطقة الدراسة (الشيب فايل اللي رفعتها)
+var studyArea = ee.FeatureCollection('projects/moh-proj/assets/Najaf-shp');
+var aoi = studyArea.geometry();
+
+// تاريخ الشهر المطلوب
+var startDate = ee.Date.fromYMD(year, month, 1);
+var endDate   = startDate.advance(1, 'month');
+
+// تحميل بيانات ERA5-Land Monthly (ECMWF)
+var era5 = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY')
+             .filterDate(startDate, endDate)
+             .first();
+
+// درجة الحرارة المتوسطة (Kelvin → Celsius) - الباند الصحيح: temperature_2m
+var temperature = era5.select('temperature_2m').subtract(273.15).rename('Temperature_C');
+
+// التبخر المحتمل (PET) - الباند الصحيح: potential_evaporation (قيم سالبة = evaporation)
+var pet_m = era5.select('potential_evaporation');
+var pet_mm = pet_m.multiply(-1000).rename('PET_mm');  // موجب (mm)
+
+// هطول الأمطار الشهري (متر → مليمتر)
+var precip_m = era5.select('total_precipitation');
+var precip_mm = precip_m.multiply(1000).rename('Precip_mm');
+
+// ميزان الماء المناخي (P - PET)
+var balance = precip_mm.subtract(pet_mm).rename('Climatic_Balance_mm');
+
+// حساب SPEI-1 تقريبي (Z-score)
+var longTerm = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY')
+                 .filter(ee.Filter.calendarRange(1981, 2023, 'year'))
+                 .filter(ee.Filter.calendarRange(month, month, 'month'))
+                 .map(function(img) {
+                   var p = img.select('total_precipitation').multiply(1000);
+                   var pet = img.select('potential_evaporation').multiply(-1000);  // موجب
+                   return p.subtract(pet).rename('Climatic_Balance_mm');
+                 });
+
+var ltMean = longTerm.mean();
+var ltStd  = longTerm.reduce(ee.Reducer.stdDev());
+
+// SPEI = (Balance - Mean) / StdDev
+var spei = balance.subtract(ltMean).divide(ltStd).rename('SPEI');
+
+// قص الصور على منطقة النجف
+var temp_clip = temperature.clip(aoi);
+var pet_clip  = pet_mm.clip(aoi);
+var spei_clip = spei.clip(aoi);
+
+// -------------------- رسم حدود منطقة الدراسة --------------------
+Map.centerObject(aoi, 9);
+Map.addLayer(studyArea.style({color: 'red', fillColor: '00000000', width: 3}), {}, 'حدود النجف');
+
+// -------------------- عرض البيانات --------------------
+Map.addLayer(temp_clip, {min: 0, max: 50, palette: ['blue', 'cyan', 'green', 'yellow', 'orange', 'red']}, 
+             'درجة الحرارة (°C) ' + year + '-' + monthStr);
+
+Map.addLayer(pet_clip, {min: 0, max: 300, palette: ['white', 'yellow', 'orange', 'red', 'darkred']}, 
+             'PET (mm) ' + year + '-' + monthStr);
+
+Map.addLayer(spei_clip, {min: -3, max: 3, palette: ['darkred','red','orange','yellow','lightgreen','cyan','blue','darkblue']}, 
+             'SPEI ' + year + '-' + monthStr);
+
+// -------------------- طباعة المعلومات --------------------
+print('تم تحميل بيانات ERA5-Land لشهر:', year + '-' + monthStr);
+
+// -------------------- تصدير الملفات (بدون ذكر اسم المنطقة) --------------------
+Export.image.toDrive({
+  image: temp_clip.toFloat(),
+  description: 'Temperature_' + year + '_' + monthStr,
+  folder: 'ERA5_Data',
+  fileNamePrefix: 'Temperature_' + year + '_' + monthStr,
+  region: aoi,
+  scale: 11132,
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+Export.image.toDrive({
+  image: pet_clip.toFloat(),
+  description: 'PET_' + year + '_' + monthStr,
+  folder: 'ERA5_Data',
+  fileNamePrefix: 'PET_' + year + '_' + monthStr,
+  region: aoi,
+  scale: 11132,
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+Export.image.toDrive({
+  image: spei_clip.toFloat(),
+  description: 'SPEI_' + year + '_' + monthStr,
+  folder: 'ERA5_Data',
+  fileNamePrefix: 'SPEI_' + year + '_' + monthStr,
+  region: aoi,
+  scale: 11132,
+  crs: 'EPSG:4326',
+  maxPixels: 1e10,
+  fileFormat: 'GeoTIFF'
+});
+
+print('تم إنشاء 3 مهام تصدير بنجاح');
+print('الملفات:');
+print('Temperature_' + year + '_' + monthStr + '.tif');
+print('PET_' + year + '_' + monthStr + '.tif');
+print('SPEI_' + year + '_' + monthStr + '.tif');
