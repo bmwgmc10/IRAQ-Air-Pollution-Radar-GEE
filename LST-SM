@@ -2,24 +2,20 @@
 // 1. تعريف منطقة الدراسة
 // ============================================================
 var roi = ee.FeatureCollection("projects/moh-proj/assets/Najaf-shp");
-
 Map.centerObject(roi, 8);
-Map.addLayer(roi, {color: 'red'}, 'Study Area (Najaf)');
 
 // ============================================================
-// 2. متغيرات التحكم (قم بتغيير السنة والشهر هنا)
+// 2. متغيرات التحكم (للتجربة على شهر يناير 2025)
 // ============================================================
-// تأكد من أن هذه القيم ضمن النطاق الزمني المتوفر للبيانات
-var targetYear = 2025;  // السنة المطلوبة
-var targetMonth = 11 ;    // رقم الشهر المطلوب (1-12)
+var targetYear = 2025;
+var targetMonth = 11 ;
 
 // ============================================================
-// 3. إعداد التواريخ ومعالجة الأسماء تلقائياً
+// 3. إعداد التواريخ والأسماء
 // ============================================================
 var startDate = ee.Date.fromYMD(targetYear, targetMonth, 1);
 var endDate = startDate.advance(1, 'month');
 
-// تنسيق اسم الملف ليكون الشهر بخانتين (مثلاً 08)
 var monthStr = targetMonth.toString();
 if (targetMonth < 10) monthStr = '0' + targetMonth;
 var yearStr = targetYear.toString();
@@ -27,33 +23,26 @@ var yearStr = targetYear.toString();
 print('جاري تحضير البيانات لتاريخ: ' + yearStr + '-' + monthStr);
 
 // ============================================================
-// 4. دوال المعالجة
+// 4. دوال المعالجة (LST)
 // ============================================================
-// دالة لمعالجة LST (MODIS V6.1) وتحويلها إلى درجة مئوية
 function processLST(image) {
-  // نطاق MODIS V6.1 هو 0.02
   var lstDay = image.select('LST_Day_1km').multiply(0.02).subtract(273.15);
   return lstDay.rename('LST')
     .set('system:time_start', image.get('system:time_start'));
 }
 
-// ============================================================
-// 5. تحميل ومعالجة LST (Surface Temperature)
-// ============================================================
-var LST_COLLECTION_ID = 'MODIS/061/MOD11A1'; // **** تم التعديل هنا ****
-
+// -----------------------------------------------------------------
+// 5. تحميل ومعالجة LST (بدون تغيير)
+// -----------------------------------------------------------------
+var LST_COLLECTION_ID = 'MODIS/061/MOD11A1';
 var modisCol = ee.ImageCollection(LST_COLLECTION_ID) 
                 .filterDate(startDate, endDate)
                 .filterBounds(roi)
                 .map(processLST);
 
-// حساب المعدل للشهر وقص المنطقة
 var lstImage = modisCol.mean().clip(roi);
-
-// اسم الملف
 var lstFileName = 'LST_' + yearStr + '_' + monthStr;
 
-// تصدير LST
 Export.image.toDrive({
   image: lstImage,
   description: lstFileName,
@@ -65,30 +54,31 @@ Export.image.toDrive({
   folder: 'GEE_Najaf_Data'
 });
 
-// ============================================================
-// 6. تحميل ومعالجة Soil Moisture
-// ============================================================
-// TerraClimate
-var soilCol = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE')
-               .filterDate(startDate, endDate)
-               .filterBounds(roi)
-               .select('soil');
+// -----------------------------------------------------------------
+// 6. تحميل ومعالجة Soil Moisture (تم التعديل)
+// -----------------------------------------------------------------
+// استخدام ERA5-Land (بيانات أسرع تحديثاً)
+var ERA5_SM_COLLECTION_ID = 'ECMWF/ERA5_LAND/HOURLY'; // بيانات كل ساعة
 
-var soilImage = soilCol.mean().clip(roi);
+var era5SoilCol = ee.ImageCollection(ERA5_SM_COLLECTION_ID)
+                  .filterDate(startDate, endDate)
+                  .filterBounds(roi)
+                  .select('volumetric_soil_water_layer_1'); // اختيار طبقة المياه الحجمية للتربة (أول طبقة)
 
-// اسم الملف
-var smFileName = 'SM_' + yearStr + '_' + monthStr;
+// حساب المعدل الشهري من البيانات الساعية
+var soilImage = era5SoilCol.mean().clip(roi); 
 
-// تصدير Soil Moisture
+var smFileName = 'SM_ERA5_' + yearStr + '_' + monthStr; // تم تغيير الاسم لتمييز المصدر
+
 Export.image.toDrive({
   image: soilImage,
   description: smFileName,
   fileNamePrefix: smFileName,
   region: roi.geometry(),
-  scale: 4638.3,
+  scale: 927.67, // دقة ERA5-Land
   maxPixels: 1e9,
   crs: 'EPSG:4326',
   folder: 'GEE_Najaf_Data'
 });
 
-print('تم تحديث الكود. يرجى الضغط على Run في تبويب Tasks لبدء التحميل.');
+print('تم تحديث الكود لاستخدام ERA5-Land لرطوبة التربة (SM). يرجى تشغيل المهام الجديدة.');
