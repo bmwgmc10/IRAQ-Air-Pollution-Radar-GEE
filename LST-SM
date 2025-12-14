@@ -1,101 +1,94 @@
 // ============================================================
 // 1. تعريف منطقة الدراسة
 // ============================================================
-// محاولة تحميل ملف الشيب فايل، وفي حال عدم وجوده نستخدم نقطة افتراضية لتجنب الخطأ
 var roi = ee.FeatureCollection("projects/moh-proj/assets/Najaf-shp");
 
-// توسيط الخريطة على منطقة الدراسة
 Map.centerObject(roi, 8);
 Map.addLayer(roi, {color: 'red'}, 'Study Area (Najaf)');
 
 // ============================================================
-// 2. إعداد المتغيرات والفترة الزمنية
+// 2. متغيرات التحكم (قم بتغيير السنة والشهر هنا)
 // ============================================================
-var startYear = 2015;
-var currentDate = new Date();
-var endYear = currentDate.getFullYear(); // السنة الحالية
+// تأكد من أن هذه القيم ضمن النطاق الزمني المتوفر للبيانات
+var targetYear = 2025;  // السنة المطلوبة
+var targetMonth = 11 ;    // رقم الشهر المطلوب (1-12)
 
 // ============================================================
-// 3. دوال معالجة الصور (Functions)
+// 3. إعداد التواريخ ومعالجة الأسماء تلقائياً
 // ============================================================
+var startDate = ee.Date.fromYMD(targetYear, targetMonth, 1);
+var endDate = startDate.advance(1, 'month');
 
-// دالة لمعالجة LST من MODIS (تحويل من كلفن إلى سيليزي)
+// تنسيق اسم الملف ليكون الشهر بخانتين (مثلاً 08)
+var monthStr = targetMonth.toString();
+if (targetMonth < 10) monthStr = '0' + targetMonth;
+var yearStr = targetYear.toString();
+
+print('جاري تحضير البيانات لتاريخ: ' + yearStr + '-' + monthStr);
+
+// ============================================================
+// 4. دوال المعالجة
+// ============================================================
+// دالة لمعالجة LST (MODIS V6.1) وتحويلها إلى درجة مئوية
 function processLST(image) {
+  // نطاق MODIS V6.1 هو 0.02
   var lstDay = image.select('LST_Day_1km').multiply(0.02).subtract(273.15);
   return lstDay.rename('LST')
     .set('system:time_start', image.get('system:time_start'));
 }
 
 // ============================================================
-// 4. حلقة التكرار لتحميل البيانات (Loop)
+// 5. تحميل ومعالجة LST (Surface Temperature)
 // ============================================================
+var LST_COLLECTION_ID = 'MODIS/061/MOD11A1'; // **** تم التعديل هنا ****
 
-// التكرار عبر السنوات
-for (var y = startYear; y <= endYear; y++) {
-  
-  // التكرار عبر الأشهر (من 1 إلى 12)
-  for (var m = 1; m <= 12; m++) {
-    
-    // تحديد تاريخ البداية والنهاية للشهر الحالي
-    var startDate = ee.Date.fromYMD(y, m, 1);
-    var endDate = startDate.advance(1, 'month');
+var modisCol = ee.ImageCollection(LST_COLLECTION_ID) 
+                .filterDate(startDate, endDate)
+                .filterBounds(roi)
+                .map(processLST);
 
-    // تنسيق رقم الشهر ليكون خانتين (مثلاً 01 بدلاً من 1) لأغراض التسمية
-    var monthStr = m.toString();
-    if (m < 10) monthStr = '0' + m;
-    var yearStr = y.toString();
+// حساب المعدل للشهر وقص المنطقة
+var lstImage = modisCol.mean().clip(roi);
 
-    // -------------------------------
-    // أولاً: معالجة وتحميل LST
-    // -------------------------------
-    var modisCol = ee.ImageCollection('MODIS/006/MOD11A1')
-                    .filterDate(startDate, endDate)
-                    .filterBounds(roi)
-                    .map(processLST);
+// اسم الملف
+var lstFileName = 'LST_' + yearStr + '_' + monthStr;
 
-    // التحقق من وجود صور في الشهر (لتجنب الأخطاء في الأشهر المستقبلية)
-    var lstImage = modisCol.mean().clip(roi); // أخذ المعدل الشهري وقص المنطقة
+// تصدير LST
+Export.image.toDrive({
+  image: lstImage,
+  description: lstFileName,
+  fileNamePrefix: lstFileName,
+  region: roi.geometry(),
+  scale: 1000,
+  maxPixels: 1e9,
+  crs: 'EPSG:4326',
+  folder: 'GEE_Najaf_Data'
+});
 
-    // اسم الملف: LST_Year_Month
-    var lstFileName = 'LST_' + yearStr + '_' + monthStr;
+// ============================================================
+// 6. تحميل ومعالجة Soil Moisture
+// ============================================================
+// TerraClimate
+var soilCol = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE')
+               .filterDate(startDate, endDate)
+               .filterBounds(roi)
+               .select('soil');
 
-    // إعداد مهمة التصدير (Export Task)
-    Export.image.toDrive({
-      image: lstImage,
-      description: lstFileName,
-      fileNamePrefix: lstFileName,
-      region: roi.geometry(),
-      scale: 1000, // دقة موديس 1 كم
-      maxPixels: 1e9,
-      crs: 'EPSG:4326', // النظام الجغرافي WGS84
-      folder: 'GEE_Najaf_Data' // اسم المجلد في درايف
-    });
+var soilImage = soilCol.mean().clip(roi);
 
-    // -------------------------------
-    // ثانياً: معالجة وتحميل Soil Moisture
-    // -------------------------------
-    // نستخدم TerraClimate لأنها شهرية وتغطي الفترة المطلوبة
-    var soilCol = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE')
-                   .filterDate(startDate, endDate)
-                   .filterBounds(roi)
-                   .select('soil'); // اختيار حزمة رطوبة التربة
+// اسم الملف
+var smFileName = 'SM_' + yearStr + '_' + monthStr;
 
-    var soilImage = soilCol.mean().clip(roi);
+// تصدير Soil Moisture
+Export.image.toDrive({
+  image: soilImage,
+  description: smFileName,
+  fileNamePrefix: smFileName,
+  region: roi.geometry(),
+  scale: 4638.3,
+  maxPixels: 1e9,
+  crs: 'EPSG:4326',
+  folder: 'GEE_Najaf_Data'
+});
 
-    // اسم الملف: SM_Year_Month
-    var smFileName = 'SM_' + yearStr + '_' + monthStr;
-
-    Export.image.toDrive({
-      image: soilImage,
-      description: smFileName,
-      fileNamePrefix: smFileName,
-      region: roi.geometry(),
-      scale: 4638.3, // دقة TerraClimate تقريباً 4 كم
-      maxPixels: 1e9,
-      crs: 'EPSG:4326',
-      folder: 'GEE_Najaf_Data'
-    });
-  }
-}
-
-print('تم إنشاء مهام التصدير. يرجى الذهاب إلى تبويب "Tasks" والضغط على Run لكل ملف.');
+print('تم تحديث الكود. يرجى الضغط على Run في تبويب Tasks لبدء التحميل.');
