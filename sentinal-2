@@ -1,0 +1,81 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[43.15626309381804, 33.47971928464729],
+          [43.15626309381804, 33.46661736836079],
+          [43.181153993476244, 33.46661736836079],
+          [43.181153993476244, 33.47971928464729]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// =======================================================
+// 1. إعدادات المستخدم (تحكم بالسنة والشهر هنا)
+// =======================================================
+
+var targetYear = 2014;  // اكتب السنة هنا
+var targetMonth = 7;    // اكتب رقم الشهر هنا (مثلاً 5 لشهر مايو)
+
+var cloudThreshold = 20; // نسبة الغيوم المسموح بها
+
+// =======================================================
+// 2. معالجة التواريخ والبيانات
+// =======================================================
+
+// إنشاء تاريخ بداية الشهر وتاريخ نهايته تلقائياً
+var startDate = ee.Date.fromYMD(targetYear, targetMonth, 1);
+var endDate = startDate.advance(1, 'month');
+
+// استدعاء بيانات Sentinel-2
+var dataset = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+                  .filterDate(startDate, endDate)
+                  .filterBounds(geometry) // يستخدم الشكل الهندسي الذي رسمته
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloudThreshold));
+
+// دالة إزالة الغيوم
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+  return image.updateMask(mask).divide(10000);
+}
+
+// دمج الصور خلال هذا الشهر لاختيار أفضل البكسلات
+var image = dataset.map(maskS2clouds).median().clip(geometry);
+
+// =======================================================
+// 3. العرض والتحقق
+// =======================================================
+
+var visParams = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+Map.centerObject(geometry, 12);
+
+// عرض الصورة على الخريطة مع كتابة التاريخ في اسم الطبقة
+var layerName = 'Sentinel-2 (' + targetYear + '-' + targetMonth + ')';
+Map.addLayer(image, visParams, layerName);
+
+// طباعة عدد الصور المتوفرة في هذا الشهر للتأكد
+print('عدد الصور المتوفرة في هذا الشهر:', dataset.size());
+
+// =======================================================
+// 4. التصدير (التحميل)
+// =======================================================
+
+Export.image.toDrive({
+  image: image.select(['B4', 'B3', 'B2']), 
+  description: 'S2_Image_' + targetYear + '_' + targetMonth, // اسم الملف يحتوي السنة والشهر
+  scale: 10,
+  region: geometry,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e13
+});
