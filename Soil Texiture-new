@@ -1,57 +1,64 @@
 // ============================================================
-// 1. إعدادات المستخدم (حدد السنة هنا)
+// 1. إعدادات منطقة الدراسة
 // ============================================================
-var targetYear = 2020; // يمكنك اختيار أي سنة من 2015 إلى 2020
-
-// مسار ملف الشيب فايل الخاص بمنطقة الدراسة
 var assetPath = "projects/moh-proj/assets/Najaf-shp";
 var roi = ee.FeatureCollection(assetPath);
 
 // ============================================================
-// 2. استدعاء بيانات السكان (WorldPop)
+// 2. استدعاء بيانات التربة (SoilGrids - ISRIC)
 // ============================================================
 
-// استدعاء مجموعة بيانات WorldPop العالمية
-// تم اختيار "العدد الكلي للسكان لكل بكسل" بدقة 100 متر (Unconstrained)
-var worldPop = ee.ImageCollection("WorldPop/GP/100m/pop")
-                .filterBounds(roi)
-                .filter(ee.Filter.calendarRange(targetYear, targetYear, 'year'))
-                .first(); // نأخذ الصورة الوحيدة المتاحة لتلك السنة
+// استدعاء نسبة الطين (Clay) ونسبة الرمل (Sand) للعمق (0-5 سم)
+// القيم في هذه البيانات تكون مقسومة على 10 (مثلاً 255 تعني 25.5%)
+var clay = ee.Image("projects/soilgrids-isric/clay_mean")
+             .select('clay_0-5cm_mean')
+             .clip(roi);
 
-// قص البيانات على حدود منطقة الدراسة (النجف)
-var population = worldPop.clip(roi);
+var sand = ee.Image("projects/soilgrids-isric/sand_mean")
+             .select('sand_0-5cm_mean')
+             .clip(roi);
+
+// تحويل القيم إلى نسبة مئوية صحيحة (0-100)
+var clay_pct = clay.divide(10);
+var sand_pct = sand.divide(10);
 
 // ============================================================
 // 3. العرض المرئي (Visualization)
 // ============================================================
 
-// إعدادات الألوان (التدرج من الأصفر للأزرق الغامق لتمثيل الكثافة العالية)
-var popVis = {
-  min: 0,
-  max: 50, // تعني 50 شخص في كل 100 متر مربع (يمكن تعديلها حسب الحاجة)
-  palette: ['#ffffe5', '#f7fcb9', '#addd8e', '#41ab5d', '#238443', '#005a32']
-};
+var clayVis = {min: 10, max: 50, palette: ['#f7fbff', '#6baed6', '#08306b']}; // تدرج أزرق للطين
+var sandVis = {min: 20, max: 80, palette: ['#ffffd4', '#fec44f', '#8c2d04']}; // تدرج برتقالي للرمل
 
-Map.centerObject(roi, 10);
-Map.addLayer(population, popVis, 'السكان في سنة ' + targetYear);
-Map.addLayer(roi, {color: 'red'}, 'حدود منطقة النجف', false);
+Map.centerObject(roi, 9);
+Map.addLayer(clay_pct, clayVis, 'Soil Clay Content (%)');
+Map.addLayer(sand_pct, sandVis, 'Soil Sand Content (%)');
+Map.addLayer(roi, {color: 'red'}, 'Najaf Boundary', false);
 
 // ============================================================
-// 4. إعداد التصدير (Export Configuration)
+// 4. التصدير إلى Google Drive بنفس الصيغة المطلوبة
 // ============================================================
 
-// تشكيل اسم ملف التحميل كما طلبت
-var fileName = 'WorldPop_Density_' + targetYear;
+var clayFileName = 'Soil_Clay_Najaf_250m';
+var sandFileName = 'Soil_Sand_Najaf_250m';
 
 Export.image.toDrive({
-  image: population,
-  description: fileName,
-  fileNamePrefix: fileName,
-  scale: 100, // الدقة المكانية لبيانات WorldPop هي 100 متر
+  image: clay_pct,
+  description: clayFileName,
+  fileNamePrefix: clayFileName,
+  scale: 250, 
   region: roi,
   maxPixels: 1e13,
   fileFormat: 'GeoTIFF'
 });
 
-print('تم إعداد بيانات السكان لسنة ' + targetYear + ' للتصدير.');
-print('اسم الملف سيكون: ' + fileName);
+Export.image.toDrive({
+  image: sand_pct,
+  description: sandFileName,
+  fileNamePrefix: sandFileName,
+  scale: 250,
+  region: roi,
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+print('تم تحديث المصدر إلى SoilGrids بنجاح. يرجى تشغيل المهام من تبويب Tasks.');
