@@ -1,0 +1,78 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
+        [[[55.75339219649514, 28.566538690312807],
+          [53.86374375899514, 31.00714446696915],
+          [50.06247422774514, 34.353741081814185],
+          [47.20602891524514, 35.98810613081572],
+          [46.26120469649514, 35.81011661400396],
+          [45.95358750899514, 35.54238292468895],
+          [46.21725938399514, 35.2378674678792],
+          [45.90964219649514, 35.13011720817166],
+          [45.62399766524514, 34.589228390414576],
+          [45.42624375899514, 33.97193800552463],
+          [45.79977891524514, 33.67988410250301],
+          [46.08542344649514, 33.148002123119795],
+          [46.61276719649514, 32.76081941626515],
+          [47.49167344649514, 32.26052983389325],
+          [47.82126329024514, 31.682705508337797],
+          [47.60153672774514, 31.04480268650218],
+          [48.04098985274514, 31.04480268650218],
+          [48.10690782149514, 30.383643085873345],
+          [48.34860704024514, 30.17491716498785],
+          [48.67819688399514, 29.965748200526974],
+          [49.53513047774514, 30.00381179181875],
+          [50.15036485274514, 29.965748200526974],
+          [51.07321641524514, 28.60512712567272],
+          [51.51266954024514, 27.86953837936481],
+          [52.12790391524514, 27.830683133325596]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// 1. إعداد منطقة الدراسة (استخدم أداة الرسم)
+var region = geometry; 
+var targetDate = '2015-05';
+var startDate = ee.Date(targetDate + '-01');
+var endDate = startDate.advance(1, 'month');
+
+// 2. دالة لتوحيد أسماء الحزم (Bands) بين القمرين
+// سنقوم بتسمية حزم Landsat لتطابق Sentinel-2 (مثلاً B5 تصبح B8)
+var renameL8 = function(img) {
+  return img.select(
+    ['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5'], // أسماء لاندسات الأصلية
+    ['B2',    'B3',    'B4',    'B8']     // الأسماء الجديدة لتطابق سنتنال
+  );
+};
+
+// 3. استدعاء المجموعات وتنظيفها
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+  .filterBounds(region)
+  .filterDate(startDate, endDate)
+  .select(['B2', 'B3', 'B4', 'B8']);
+
+var l89 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2') // يشمل لاندسات 8 و 9
+  .filterBounds(region)
+  .filterDate(startDate, endDate)
+  .map(renameL8);
+
+// 4. عملية الدمج (Merging)
+// نقوم بدمج المجموعتين ثم نستخدم تقنية الـ Median لدمج البكسلات
+var combinedCol = s2.merge(l89);
+
+var fusedImage = combinedCol.median().clip(region);
+
+// 5. حساب NDVI من الصورة المدمجة
+var ndvi = fusedImage.normalizedDifference(['B8', 'B4']).rename('NDVI');
+
+// 6. العرض بدقة عالية
+Map.centerObject(region, 12);
+// نستخدم الـ Scale: 10 لإجبار المحرك على عرض لاندسات بدقة سنتنال
+Map.addLayer(ndvi, {min: 0, max: 0.8, palette: ['white', 'yellow', 'green']}, 'Fused NDVI 10m');
+
+// 7. التصدير بدقة 10 متر
+Export.image.toDrive({
+  image: ndvi,
+  description: 'Fused_L8_S2_NDVI',
+  scale: 10, // هنا تكمن القوة: تصدير لاندسات بدقة 10 متر بعد الدمج
+  region: region,
+  maxPixels: 1e13
+});
+
+print('تم دمج صور Landsat و Sentinel في ملف واحد بدقة 10 متر');
