@@ -27,78 +27,81 @@ var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
           [52.12790391524514, 27.830683133325596]]]);
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 // ============================================================
-// 1. إعدادات المستخدم (اختر السنة والفصل هنا)
+// 1. إعدادات المستخدم (تأكد من كتابة الفصل بشكل صحيح)
 // ============================================================
 var targetYear = 2020; 
-var season = 'Winter'; // اختر: 'Winter', 'Spring', 'Summer', 'Autumn'
+var inputSeason = 'winter'; // يمكنك كتابتها winter أو Winter
 
-// تحديد الأشهر بناءً على الفصل
+// دالة لتصحيح حالة الأحرف لضمان عدم حدوث خطأ undefined
+var season = inputSeason.charAt(0).toUpperCase() + inputSeason.slice(1).toLowerCase();
+
+// تعريف الأشهر لكل فصل
 var seasonMonths = {
   'Winter': [12, 1, 2],
   'Spring': [3, 4, 5],
   'Summer': [6, 7, 8],
   'Autumn': [9, 10, 11]
 };
+
 var months = seasonMonths[season];
 
-// منطقة الدراسة (تأكد من رسمها باستخدام أداة الرسم)
-var region = geometry; 
+// التحقق مما إذا كان الفصل موجوداً في القائمة قبل البدء
+if (!months) {
+  throw Error('اسم الفصل غير صحيح! اختر من: Winter, Spring, Summer, Autumn');
+}
+
+var region = geometry; // تأكد من رسم منطقة الدراسة
 
 // ============================================================
-// 2. دوال المعالجة والتوحيد
+// 2. دوال المعالجة وتوحيد البيانات (Cast & Float)
 // ============================================================
 
-// توحيد لاندسات مع سنتنال وتصحيح القيم (Scaling)
-var renameAndScaleL8 = function(img) {
-  return img.select(
+var processL89 = function(img) {
+  var scaled = img.select(
     ['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5'], 
     ['B2',    'B3',    'B4',    'B8']
-  ).multiply(0.0000275).add(-0.2); 
+  ).multiply(0.0000275).add(-0.2);
+  
+  return scaled.cast({'B2':'float', 'B3':'float', 'B4':'float', 'B8':'float'}).toFloat();
 };
 
-// تنظيف غيوم سنتنال وتصحيح القيم
-var maskS2Clouds = function(img) {
+var processS2 = function(img) {
   var qa = img.select('QA60');
   var mask = qa.bitwiseAnd(1 << 10).eq(0).and(qa.bitwiseAnd(1 << 11).eq(0));
-  return img.updateMask(mask).divide(10000);
+  var scaled = img.updateMask(mask).divide(10000).select(['B2', 'B3', 'B4', 'B8']);
+  
+  return scaled.cast({'B2':'float', 'B3':'float', 'B4':'float', 'B8':'float'}).toFloat();
 };
 
 // ============================================================
 // 3. تجميع البيانات للفصل المحدد
 // ============================================================
 
-// استدعاء سنتنال 2
 var s2Col = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
   .filterBounds(region)
   .filter(ee.Filter.calendarRange(targetYear, targetYear, 'year'))
-  .filter(ee.Filter.calendarRange(months[0], months[2], 'month'))
-  .map(maskS2Clouds)
-  .select(['B2', 'B3', 'B4', 'B8']);
+  .filter(ee.Filter.calendarRange(months[0], months[2], 'month')) // السطر 50 المصحح
+  .map(processS2);
 
-// استدعاء لاندسات 8 و 9
 var l89Col = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
   .filterBounds(region)
   .filter(ee.Filter.calendarRange(targetYear, targetYear, 'year'))
   .filter(ee.Filter.calendarRange(months[0], months[2], 'month'))
-  .map(renameAndScaleL8);
+  .map(processL89);
 
-// دمج المجموعتين وحساب المتوسط (Mean) لتمثيل الفصل
 var combined = s2Col.merge(l89Col);
-var seasonalMean = combined.mean().clip(region);
+var seasonalComposite = combined.median();
 
-// حساب مؤشر NDVI
-var ndvi = seasonalMean.normalizedDifference(['B8', 'B4']).rename('NDVI');
+var ndvi = seasonalComposite.normalizedDifference(['B8', 'B4']).rename('NDVI').clip(region);
 
 // ============================================================
-// 4. العرض المرئي والتصدير
+// 4. العرض والتصدير
 // ============================================================
 
 Map.centerObject(region, 10);
-var vis = {min: 0, max: 0.8, palette: ['white', 'yellow', 'green']};
-Map.addLayer(ndvi, vis, 'NDVI ' + season + ' ' + targetYear);
+Map.addLayer(ndvi, {min: 0, max: 0.8, palette: ['white', 'yellow', 'green']}, 'NDVI ' + season);
 
-// اسم الملف ديناميكي (نوع البيانات + الفصل + السنة)
-var fileName = 'NDVI_Fused_' + season + '_' + targetYear;
+var fileName = 'NDVI_' + season + '_' + targetYear;
 
 Export.image.toDrive({
   image: ndvi,
@@ -107,11 +110,7 @@ Export.image.toDrive({
   scale: 10,
   region: region,
   maxPixels: 1e13,
-  fileFormat: 'GeoTIFF',
-  formatOptions: {
-    cloudOptimized: true // لضمان تصدير الملف ككتلة واحدة قدر الإمكان
-  }
+  formatOptions: {cloudOptimized: true}
 });
 
-print('تم معالجة بيانات فصل: ' + season + ' لعام ' + targetYear);
-print('عدد الصور المستخدمة في الدمج لهذا الفصل: ', combined.size());
+print('تم حل المشكلة. الفصل المختار هو: ' + season);
