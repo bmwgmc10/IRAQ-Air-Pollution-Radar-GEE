@@ -1,0 +1,78 @@
+// 1. استدعاء منطقة الدراسة (النجف الأشرف)
+var najaf = ee.FeatureCollection("projects/moh-proj/assets/Najaf-shp");
+Map.centerObject(najaf, 8);
+Map.addLayer(najaf, {color: 'red'}, 'Najaf Boundary');
+
+// 2. تحديد النطاق الزمني
+var startDate = ee.Date('2015-01-01');
+var endDate = ee.Date('2025-12-31');
+
+// 3. إنشاء قائمة بالأشهر والسنوات
+var months = ee.List.sequence(1, 12);
+var years = ee.List.sequence(2015, 2025);
+
+// 4. دالة لاستخلاص البيانات الشهرية
+var monthlyData = years.map(function(y) {
+  return months.map(function(m) {
+    
+    var start = ee.Date.fromYMD(y, m, 1);
+    var end = start.advance(1, 'month');
+    
+    // أ- جلب بيانات الغطاء النباتي والمائي (Sentinel-2 أو Landsat)
+    // هنا نستخدم Sentinel-2 كمثال
+    var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+      .filterBounds(najaf)
+      .filterDate(start, end)
+      .mean();
+    
+    var ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI');
+    var ndwi = s2.normalizedDifference(['B3', 'B8']).rename('NDWI');
+    
+    // ب- جلب بيانات الأمطار (CHIRPS)
+    var rain = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
+      .filterBounds(najaf)
+      .filterDate(start, end)
+      .sum().rename('Rainfall');
+      
+    // ج- جلب بيانات درجة حرارة سطح الأرض (MODIS LST)
+    var lst = ee.ImageCollection("MODIS/061/MOD11A1")
+      .filterBounds(najaf)
+      .filterDate(start, end)
+      .mean().select('LST_Day_1km').multiply(0.02).subtract(273.15).rename('LST');
+
+    // د- جلب بيانات رطوبة التربة (GLDAS)
+    var soilMoisture = ee.ImageCollection("NASA/GLDAS/V021/NOAH/G025/T3H")
+      .filterBounds(najaf)
+      .filterDate(start, end)
+      .mean().select('RootMoist_inst').rename('SoilMoisture');
+
+    // دمج المؤشرات في صورة واحدة لهذا الشهر
+    var combined = ndvi.addBands(ndwi).addBands(rain).addBands(lst).addBands(soilMoisture);
+    
+    // حساب المتوسط لمنطقة النجف (Zonal Statistics)
+    var stats = combined.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: najaf,
+      scale: 1000, // الدقة بالمتر
+      maxPixels: 1e13
+    });
+
+    return ee.Feature(null, stats)
+      .set('year', y)
+      .set('month', m)
+      .set('system:time_start', start.millis());
+  });
+}).flatten();
+
+// 5. تحويل النتائج إلى FeatureCollection
+var finalTable = ee.FeatureCollection(monthlyData);
+
+// 6. تصدير البيانات إلى ملف CSV في Google Drive
+Export.table.toDrive({
+  collection: finalTable,
+  description: 'Najaf_Monthly_Water_Data_2015_2025',
+  fileFormat: 'CSV',
+  selectors: ['year', 'month', 'NDVI', 'NDWI', 'Rainfall', 'LST', 'SoilMoisture']
+});
+
+print('Processing Complete. Check the Tasks tab to export the CSV.');
