@@ -28,3 +28,172 @@ var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
           [48.38175111440036, 30.227908002706396],
           [48.42569642690036, 30.066403000261534]]]);
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
+// 1. تحديد النطاق الزمني ومنطقة الدراسة
+var startDate = '2015-01-01';
+var endDate = '2025-12-31';
+
+// --- أولاً: بيانات Landsat 8 ---
+var l8 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+  .filterBounds(geometry)
+  .filterDate(startDate, endDate)
+  .map(function(image) {
+    var stats = image.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: geometry,
+      scale: 30,
+      maxPixels: 1e13 // رفع الحد المسموح به للبكسلات
+    });
+    return ee.Feature(null, stats).set('system:time_start', image.get('system:time_start')).set('sensor', 'Landsat 8');
+  });
+
+// --- ثانياً: بيانات Landsat 9 ---
+var l9 = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+  .filterBounds(geometry)
+  .filterDate('2022-01-01', endDate)
+  .map(function(image) {
+    var stats = image.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: geometry,
+      scale: 30,
+      maxPixels: 1e13 
+    });
+    return ee.Feature(null, stats).set('system:time_start', image.get('system:time_start')).set('sensor', 'Landsat 9');
+  });
+
+// --- ثالثاً: بيانات Sentinel-2 ---
+var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+  .filterBounds(geometry)
+  .filterDate('2015-01-01', endDate)
+  .map(function(image) {
+    var stats = image.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: geometry,
+      scale: 30, // رفعنا المقياس قليلاً لتسريع المعالجة، يمكنك إعادته لـ 10 إذا كانت المنطقة ليست ضخمة جداً
+      maxPixels: 1e13
+    });
+    return ee.Feature(null, stats).set('system:time_start', image.get('system:time_start')).set('sensor', 'Sentinel-2');
+  });
+
+// --- رابعاً: بيانات المناخ ERA5-Land ---
+var era5 = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+  .filterBounds(geometry)
+  .filterDate(startDate, endDate)
+  .map(function(image) {
+    var stats = image.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: geometry,
+      scale: 11132,
+      maxPixels: 1e13
+    });
+    return ee.Feature(null, stats).set('system:time_start', image.get('system:time_start')).set('sensor', 'ERA5-Land');
+  });
+
+// --- التصدير ---
+Export.table.toDrive({
+  collection: l8,
+  description: 'Landsat8_Data_Export',
+  fileFormat: 'CSV'
+});
+
+Export.table.toDrive({
+  collection: l9,
+  description: 'Landsat9_Data_Export',
+  fileFormat: 'CSV'
+});
+
+Export.table.toDrive({
+  collection: s2,
+  description: 'Sentinel2_Data_Export',
+  fileFormat: 'CSV'
+});
+
+Export.table.toDrive({
+  collection: era5,
+  description: 'ERA5_Land_Climate_Data',
+  fileFormat: 'CSV'
+});
+//////////////////////////////////////////////////////
+// 1. استدعاء بيانات NASADEM
+// NASADEM هي نسخة محسنة من SRTM بدقة 30 متر
+var dataset = ee.Image("NASA/NASADEM_HGT/001");
+
+// 2. اختيار حزمة "الارتفاع" (Elevation)
+var elevation = dataset.select('elevation');
+
+// 3. قص البيانات بناءً على المضلع المرسوم (geometry)
+// تأكد من رسم مضلع باستخدام أدوات الرسم وتسميته geometry
+var clippedDEM = elevation.clip(geometry);
+
+// 4. إعدادات العرض على الخريطة
+var visParams = {
+  min: 0,
+  max: 3000,
+  palette: ['blue', 'green', 'yellow', 'orange', 'red', 'white']
+};
+
+Map.centerObject(geometry, 10);
+Map.addLayer(clippedDEM, visParams, 'NASADEM Elevation');
+
+// 5. تصدير البيانات إلى Google Drive بصيغة GeoTIFF
+Export.image.toDrive({
+  image: clippedDEM,
+  description: 'NASADEM_StudyArea_Export',
+  scale: 30, // الدقة المكانية لـ NASADEM هي 30 متر
+  region: geometry,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e13
+});
+
+// طباعة رسالة تأكيد في الـ Console
+print('تم تجهيز بيانات NASADEM. اذهب إلى تبويب Tasks لتشغيل عملية التحميل.');
+///////////////////////////////////////////////////////////////////////
+// 1. تحديد النطاق الزمني
+var startDate = '2015-01-01';
+var endDate = '2025-12-31';
+
+// 2. استدعاء بيانات Sentinel-2 وتصفيتها
+var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+  .filterBounds(geometry)
+  .filterDate(startDate, endDate)
+  // تصفية الصور التي تحتوي على غيوم بنسبة أقل من 20%
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20));
+
+// 3. وظيفة لحساب NDVI وإضافته كـ Band لكل صورة
+var addNDVI = function(image) {
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  return image.addBands(ndvi);
+};
+
+// تطبيق الوظيفة على المجموعة
+var s2WithNDVI = s2.map(addNDVI);
+
+// 4. وظيفة لاستخراج متوسط NDVI داخل المضلع وتحويله إلى Feature
+var extractStats = function(image) {
+  var stats = image.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: geometry,
+    scale: 10,
+    maxPixels: 1e13
+  });
+  
+  // إرجاع النتيجة مع التاريخ واسم المؤشر
+  return ee.Feature(null, {
+    'NDVI_mean': stats.get('NDVI'),
+    'date': image.date().format('yyyy-MM-dd'),
+    'system:time_start': image.get('system:time_start')
+  });
+};
+
+// تطبيق عملية الاستخراج على جميع الصور
+var ndviTimeSeries = s2WithNDVI.map(extractStats);
+
+// 5. عرض النتائج في وحدة التحكم (Console) للتأكد
+print('NDVI Time Series:', ndviTimeSeries);
+
+// 6. تصدير البيانات إلى ملف CSV
+Export.table.toDrive({
+  collection: ndviTimeSeries,
+  description: 'NDVI_TimeSeries_Export',
+  fileFormat: 'CSV',
+  selectors: ['date', 'NDVI_mean'] // الأعمدة التي ستظهر في ملف CSV
+});
