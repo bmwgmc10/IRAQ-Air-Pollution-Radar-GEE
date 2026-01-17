@@ -1,0 +1,141 @@
+/**
+ * منصة المراقبة الزراعية الشاملة 2026
+ * نظام مراقبة صحة النبات والرطوبة التاريخي
+ */
+
+// --- 1. إعداد الواجهة الجانبية (Panel) ---
+var mainPanel = ui.Panel({
+  style: {
+    width: '380px', 
+    padding: '12px', 
+    border: '2px solid #2e7d32'
+  }
+});
+
+var title = ui.Label('🌱 المنصة الزراعية المتكاملة', {
+  fontSize: '22px', 
+  fontWeight: 'bold', 
+  color: '#2e7d32',
+  margin: '0 0 10px 0'
+});
+
+var description = ui.Label('أداة احترافية لتحليل صحة المحاصيل والرطوبة باستخدام Sentinel-2.', {
+  fontSize: '13px', 
+  color: '#555'
+});
+
+mainPanel.add(title).add(description);
+
+// --- 2. إعدادات الألوان والبيانات ---
+var ndviVis = {min: 0, max: 0.8, palette: ['#ecebb4', '#d1db7d', '#87af49', '#4f8323', '#1e5109']};
+var ndwiVis = {min: -0.2, max: 0.5, palette: ['#f7fbff', '#deebf7', '#9ecae1', '#4292c6', '#084594']};
+var currentLayer = 'NDVI'; 
+
+// --- 3. وظيفة جلب البيانات بناءً على التاريخ ---
+function getSatelliteData(date) {
+  var selectedDate = ee.Date(date);
+  var collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+    .filterBounds(Map.getCenter())
+    .filterDate(selectedDate.advance(-15, 'day'), selectedDate.advance(1, 'day'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    .median();
+    
+  var ndvi = collection.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  var ndwi = collection.normalizedDifference(['B3', 'B8']).rename('NDWI');
+  return collection.addBands([ndvi, ndwi]);
+}
+
+// --- 4. عناصر التحكم بالتاريخ والطبقات ---
+var dateLabel = ui.Label('1. اختر تاريخ المراقبة:', {fontWeight: 'bold', margin: '15px 0 5px 0'});
+var dateSlider = ui.DateSlider({
+  start: '2024-01-01',
+  end: '2026-01-17',
+  value: '2026-01-17',
+  period: 1,
+  onChange: function() { updateDisplay(); }
+});
+
+var layerLabel = ui.Label('2. اختر نوع التحليل:', {fontWeight: 'bold', margin: '15px 0 5px 0'});
+var ndviBtn = ui.Button({label: 'صحة النبات (NDVI)', onClick: function() { currentLayer = 'NDVI'; updateDisplay(); }});
+var ndwiBtn = ui.Button({label: 'رطوبة المحصول (NDWI)', onClick: function() { currentLayer = 'NDWI'; updateDisplay(); }});
+
+var btnPanel = ui.Panel([ndviBtn, ndwiBtn], ui.Panel.Layout.Flow('horizontal'));
+
+mainPanel.add(dateLabel).add(dateSlider).add(layerLabel).add(btnPanel);
+
+// --- 5. دليل التفسير الذكي ---
+var tipsPanel = ui.Panel({
+  style: {
+    margin: '20px 0 0 0', 
+    backgroundColor: '#f1f8e9', 
+    padding: '10px', 
+    border: '1px solid #c5e1a5'
+  }
+});
+tipsPanel.add(ui.Label('💡 كيف تقرأ النتائج؟', {fontWeight: 'bold', fontSize: '14px', color: '#33691e'}));
+tipsPanel.add(ui.Label('• NDVI الداكن: نبات كثيف وصحي جداً.', {fontSize: '11px'}));
+tipsPanel.add(ui.Label('• NDWI الأزرق: وفرة مائية؛ انخفاضه يعني حاجة للري.', {fontSize: '11px'}));
+tipsPanel.add(ui.Label('• الرسم البياني: اضغط على أي نقطة لمراقبة تاريخ نموها.', {fontSize: '11px'}));
+mainPanel.add(tipsPanel);
+
+// --- 6. نظام الرسم البياني التفاعلي ---
+var chartPanel = ui.Panel({style: {margin: '15px 0 0 0'}});
+mainPanel.add(chartPanel);
+
+Map.onClick(function(coords) {
+  chartPanel.clear();
+  var point = ee.Geometry.Point([coords.lon, coords.lat]);
+  Map.layers().set(1, ui.Map.Layer(point, {color: 'red'}, 'النقطة المختارة'));
+
+  var chart = ui.Chart.image.series({
+    imageCollection: ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+      .filterBounds(point)
+      .filterDate('2025-01-01', '2026-01-17')
+      .map(function(img) { return img.addBands(img.normalizedDifference(['B8', 'B4']).rename('NDVI')); }),
+    region: point,
+    reducer: ee.Reducer.mean(),
+    scale: 10
+  }).setOptions({
+    title: 'تاريخ نمو المحصول (NDVI)',
+    colors: ['#2e7d32'],
+    hAxis: {title: 'التاريخ'},
+    vAxis: {title: 'جودة النمو'}
+  });
+  chartPanel.add(chart);
+});
+
+// --- 7. مفتاح الخريطة (Legend) ---
+var legend = ui.Panel({style: {position: 'bottom-left', padding: '8px'}});
+Map.add(legend);
+
+function updateLegend(title, palette, labels) {
+  legend.clear();
+  legend.add(ui.Label(title, {fontWeight: 'bold', fontSize: '14px'}));
+  for (var i = 0; i < palette.length; i++) {
+    var colorBox = ui.Label({style: {backgroundColor: palette[i], padding: '8px', margin: '0 0 4px 0'}});
+    var description = ui.Label({value: labels[i] || '', style: {margin: '0 0 0 6px', fontSize: '11px'}});
+    legend.add(ui.Panel([colorBox, description], ui.Panel.Layout.Flow('horizontal')));
+  }
+}
+
+// --- 8. تحديث العرض ---
+function updateDisplay() {
+  var date = dateSlider.getValue()[0];
+  var data = getSatelliteData(date);
+  var activeImage = data.select(currentLayer);
+  
+  Map.layers().set(0, ui.Map.Layer(activeImage, 
+    currentLayer === 'NDVI' ? ndviVis : ndwiVis, 
+    currentLayer));
+  
+  if (currentLayer === 'NDVI') {
+    updateLegend('صحة النبات (NDVI)', ndviVis.palette, ['ضعيف', '', 'متوسط', '', 'ممتاز']);
+  } else {
+    updateLegend('مستوى الرطوبة (NDWI)', ndwiVis.palette, ['جاف', '', 'رطب', '', 'مشبع']);
+  }
+}
+
+// إطلاق الواجهة
+ui.root.insert(0, mainPanel);
+Map.style().set('cursor', 'crosshair');
+updateDisplay();
