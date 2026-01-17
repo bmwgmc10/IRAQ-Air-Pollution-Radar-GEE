@@ -1,0 +1,135 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #ff0000 */
+    /* shown: false */
+    ee.Geometry.Polygon(
+        [[[44.62915270263043, 33.46047526275302],
+          [44.18969957763043, 33.46620352604311],
+          [44.15124742919293, 33.211504385466675],
+          [44.50418322020855, 33.17932731618872]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// 1. إعداد الواجهة الجانبية
+var panel = ui.Panel({
+  style: {width: '350px', padding: '15px', border: '1px solid #ccc'}
+});
+ui.root.add(panel);
+
+panel.add(ui.Label({
+  value: 'نظام رصد الملوثات الجوية الشامل',
+  style: {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50', textAlign: 'center'}
+}));
+
+// 2. أزرار التحكم
+panel.add(ui.Label('1. تحديد منطقة الدراسة:'));
+var drawButton = ui.Button({
+  label: 'رسم منطقة الدراسة (مضلع)',
+  onClick: function() {
+    var drawingTools = Map.drawingTools();
+    drawingTools.setShown(true);
+    drawingTools.setShape('polygon');
+    drawingTools.draw();
+  },
+  style: {width: '100%'}
+});
+panel.add(drawButton);
+
+panel.add(ui.Label('2. تحديد التاريخ:'));
+var dateInput = ui.Textbox({value: '2025-06-01', style: {width: '100%'}});
+panel.add(dateInput);
+
+panel.add(ui.Label('3. اختيار المادة الملوثة:'));
+
+var pollutants = {
+  'ثاني أكسيد النيتروجين (NO2)': {id: 'COPERNICUS/S5P/OFFL/L3_NO2', band: 'tropospheric_NO2_column_number_density', min: 0, max: 0.0002, limit: 0.0001, unit: 'mol/m²'},
+  'أول أكسيد الكربون (CO)': {id: 'COPERNICUS/S5P/OFFL/L3_CO', band: 'CO_column_number_density', min: 0, max: 0.05, limit: 0.03, unit: 'mol/m²'},
+  'ثاني أكسيد الكبريت (SO2)': {id: 'COPERNICUS/S5P/OFFL/L3_SO2', band: 'SO2_column_number_density', min: 0, max: 0.001, limit: 0.0005, unit: 'mol/m²'},
+  'الأوزون (O3)': {id: 'COPERNICUS/S5P/OFFL/L3_O3', band: 'O3_column_number_density', min: 0.1, max: 0.2, limit: 0.15, unit: 'mol/m²'},
+  'الميثان (CH4)': {id: 'COPERNICUS/S5P/OFFL/L3_CH4', band: 'CH4_column_volume_mixing_ratio_dry_air', min: 1750, max: 1950, limit: 1850, unit: 'ppbV'},
+  'الفورمالديهايد (HCHO)': {id: 'COPERNICUS/S5P/OFFL/L3_HCHO', band: 'tropospheric_HCHO_column_number_density', min: 0, max: 0.0003, limit: 0.0001, unit: 'mol/m²'},
+  'مؤشر الهباء الجوي (Aerosols)': {id: 'COPERNICUS/S5P/OFFL/L3_AER_AI', band: 'absorbing_aerosol_index', min: -1, max: 2, limit: 1, unit: 'Index'}
+};
+
+var select = ui.Select({
+  items: Object.keys(pollutants),
+  placeholder: 'اختر المادة من هنا...',
+  style: {width: '100%'}
+});
+panel.add(select);
+
+var runButton = ui.Button({
+  label: 'تحليل وعرض الخريطة الحرارية',
+  onClick: function() {
+    runAnalysis(dateInput.getValue(), select.getValue());
+  },
+  style: {width: '100%', fontWeight: 'bold', backgroundColor: '#e74c3c', color: 'white'}
+});
+panel.add(runButton);
+
+var resultsPanel = ui.Panel();
+panel.add(resultsPanel);
+
+// 3. وظيفة التحليل
+function runAnalysis(dateStr, pollutantName) {
+  var drawingTools = Map.drawingTools();
+  var layers = drawingTools.layers();
+  
+  if (layers.length() === 0) { alert('ارسم المنطقة أولاً!'); return; }
+  if (!pollutantName) { alert('اختر مادة ملوثة!'); return; }
+
+  resultsPanel.clear();
+  var layer = layers.get(0);
+  var roi = layer.getEeObject();
+  
+  // الطريقة الصحيحة لضبط اللون والشفافية في GEE لطبقات الرسم
+  layer.setColor('red'); // لون الحدود
+  layer.setShown(false); // إخفاء المضلع الأصلي لنرى الخريطة الحرارية تحته بوضوح
+
+  var p = pollutants[pollutantName];
+  var start = ee.Date(dateStr);
+  
+  var dataset = ee.ImageCollection(p.id)
+    .filterBounds(roi)
+    .filterDate(start, start.advance(1, 'month'))
+    .select(p.band).mean().clip(roi);
+
+  var viz = {min: p.min, max: p.max, palette: ['00ff00', 'ffff00', 'ff0000']};
+  Map.layers().reset();
+  Map.addLayer(dataset, viz, pollutantName);
+  Map.centerObject(roi, 10);
+
+  var stats = dataset.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: roi,
+    scale: 1000,
+    maxPixels: 1e9
+  });
+  
+  stats.evaluate(function(result) {
+    if (!result || !result[p.band]) {
+      resultsPanel.add(ui.Label('لا توجد بيانات، جرب تاريخاً آخر.'));
+      return;
+    }
+    
+    var val = result[p.band];
+    var percentage = (val / p.limit) * 100;
+    
+    resultsPanel.add(ui.Label('--- نتائج التحليل ---', {fontWeight: 'bold'}));
+    resultsPanel.add(ui.Label('المادة: ' + pollutantName));
+    resultsPanel.add(ui.Label('التركيز المتوسط: ' + val.toFixed(6) + ' ' + p.unit));
+    resultsPanel.add(ui.Label('نسبة التلوث: ' + percentage.toFixed(1) + '%', 
+      {color: percentage > 100 ? 'red' : 'green', fontWeight: 'bold'}));
+  });
+}
+
+// 4. دليل الألوان (Legend)
+var legend = ui.Panel({style: {position: 'bottom-right', padding: '8px 15px'}});
+legend.add(ui.Label('مستوى التلوث'));
+var makeRow = function(color, name) {
+  var colorBox = ui.Label({style: {backgroundColor: color, padding: '8px', margin: '0 0 4px 0'}});
+  var description = ui.Label({value: name, style: {margin: '0 0 4px 6px'}});
+  return ui.Panel({widgets: [colorBox, description], layout: ui.Panel.Layout.Flow('horizontal')});
+};
+legend.add(makeRow('00ff00', 'منخفض (آمن)'));
+legend.add(makeRow('ffff00', 'متوسط'));
+legend.add(makeRow('ff0000', 'مرتفع (خطر)'));
+Map.add(legend);
