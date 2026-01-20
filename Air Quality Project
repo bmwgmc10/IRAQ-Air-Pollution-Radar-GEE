@@ -1,10 +1,3 @@
-/**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var geometry = /* color: #bf04c2 */ee.Geometry.Polygon(
-        [[[43.75499350739542, 33.31134904864466],
-          [43.830524513254794, 33.31565265757098],
-          [43.8253746719462, 33.37387393288227],
-          [43.74641043854776, 33.3669926587371]]]);
-/***** End of imports. If edited, may not auto-convert in the playground. *****/
 // 1. إعداد الواجهة الجانبية
 var panel = ui.Panel({
   style: {width: '400px', padding: '15px', border: '1px solid #ccc'}
