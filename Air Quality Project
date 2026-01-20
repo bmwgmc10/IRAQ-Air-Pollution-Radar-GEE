@@ -1,13 +1,3 @@
-/**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var geometry = 
-    /* color: #ff0000 */
-    /* shown: false */
-    ee.Geometry.Polygon(
-        [[[43.13211791869992, 33.25973164589559],
-          [43.47818725463742, 33.388250580386995],
-          [43.39304321166867, 33.60126447982808],
-          [43.06619994994992, 33.51886966262112]]]);
-/***** End of imports. If edited, may not auto-convert in the playground. *****/
 // 1. إعداد الواجهة الجانبية
 var panel = ui.Panel({
   style: {width: '350px', padding: '15px', border: '1px solid #ccc'}
@@ -15,23 +5,42 @@ var panel = ui.Panel({
 ui.root.add(panel);
 
 panel.add(ui.Label({
-  value: 'نظام رصد الملوثات الجوية الشامل',
+  value: 'نظام رصد الملوثات الجوية الذكي',
   style: {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50', textAlign: 'center'}
 }));
 
 // 2. أزرار التحكم
-panel.add(ui.Label('1. تحديد منطقة الدراسة:'));
+panel.add(ui.Label('1. التحكم في منطقة الدراسة:'));
 var drawButton = ui.Button({
-  label: 'رسم منطقة الدراسة (مضلع)',
+  label: 'رسم منطقة جديدة',
   onClick: function() {
     var drawingTools = Map.drawingTools();
     drawingTools.setShown(true);
     drawingTools.setShape('polygon');
     drawingTools.draw();
   },
-  style: {width: '100%'}
+  style: {stretch: 'horizontal'}
 });
-panel.add(drawButton);
+
+var clearButton = ui.Button({
+  label: 'إلغاء وتفريغ الخريطة',
+  onClick: function() {
+    var drawingTools = Map.drawingTools();
+    while (drawingTools.layers().length() > 0) {
+      drawingTools.layers().remove(drawingTools.layers().get(0));
+    }
+    Map.layers().reset();
+    resultsPanel.clear();
+  },
+  style: {stretch: 'horizontal'}
+});
+
+var buttonPanel = ui.Panel({
+  widgets: [drawButton, clearButton],
+  layout: ui.Panel.Layout.Flow('horizontal'),
+  style: {stretch: 'horizontal'}
+});
+panel.add(buttonPanel);
 
 panel.add(ui.Label('2. تحديد التاريخ:'));
 var dateInput = ui.Textbox({value: '2025-06-01', style: {width: '100%'}});
@@ -42,7 +51,7 @@ panel.add(ui.Label('3. اختيار المادة الملوثة:'));
 var pollutants = {
   'ثاني أكسيد النيتروجين (NO2)': {id: 'COPERNICUS/S5P/OFFL/L3_NO2', band: 'tropospheric_NO2_column_number_density', min: 0, max: 0.0002, limit: 0.0001, unit: 'mol/m²'},
   'أول أكسيد الكربون (CO)': {id: 'COPERNICUS/S5P/OFFL/L3_CO', band: 'CO_column_number_density', min: 0, max: 0.05, limit: 0.03, unit: 'mol/m²'},
-  'ثاني أكسيد الكبريت (SO2)': {id: 'COPERNICUS/S5P/OFFL/L3_SO2', band: 'SO2_column_number_density', min: 0, max: 0.001, limit: 0.0005, unit: 'mol/m²'},
+  'ثاني أكسيد الكبريت (SO2)': {id: 'COPERNICUS/S5P/OFFL/L3_SO2', band: 'SO2_column_number_density', min: 0, max: 0.0005, limit: 0.0002, unit: 'mol/m²'},
   'الأوزون (O3)': {id: 'COPERNICUS/S5P/OFFL/L3_O3', band: 'O3_column_number_density', min: 0.1, max: 0.2, limit: 0.15, unit: 'mol/m²'},
   'الميثان (CH4)': {id: 'COPERNICUS/S5P/OFFL/L3_CH4', band: 'CH4_column_volume_mixing_ratio_dry_air', min: 1750, max: 1950, limit: 1850, unit: 'ppbV'},
   'الفورمالديهايد (HCHO)': {id: 'COPERNICUS/S5P/OFFL/L3_HCHO', band: 'tropospheric_HCHO_column_number_density', min: 0, max: 0.0003, limit: 0.0001, unit: 'mol/m²'},
@@ -57,7 +66,7 @@ var select = ui.Select({
 panel.add(select);
 
 var runButton = ui.Button({
-  label: 'تحليل وعرض الخريطة الحرارية',
+  label: 'تشغيل التحليل السريع',
   onClick: function() {
     runAnalysis(dateInput.getValue(), select.getValue());
   },
@@ -73,24 +82,25 @@ function runAnalysis(dateStr, pollutantName) {
   var drawingTools = Map.drawingTools();
   var layers = drawingTools.layers();
   
-  if (layers.length() === 0) { alert('ارسم المنطقة أولاً!'); return; }
-  if (!pollutantName) { alert('اختر مادة ملوثة!'); return; }
+  if (layers.length() === 0) { alert('يرجى رسم المنطقة أولاً!'); return; }
+  if (!pollutantName) { alert('يرجى اختيار مادة ملوثة!'); return; }
 
   resultsPanel.clear();
-  var layer = layers.get(0);
-  var roi = layer.getEeObject();
+  resultsPanel.add(ui.Label('جاري جلب البيانات...'));
   
-  // الطريقة الصحيحة لضبط اللون والشفافية في GEE لطبقات الرسم
-  layer.setColor('red'); // لون الحدود
-  layer.setShown(false); // إخفاء المضلع الأصلي لنرى الخريطة الحرارية تحته بوضوح
+  var layer = layers.get(layers.length() - 1);
+  var roi = layer.getEeObject();
+  layer.setShown(false); 
 
   var p = pollutants[pollutantName];
   var start = ee.Date(dateStr);
   
   var dataset = ee.ImageCollection(p.id)
     .filterBounds(roi)
-    .filterDate(start, start.advance(1, 'month'))
-    .select(p.band).mean().clip(roi);
+    .filterDate(start, start.advance(14, 'day'))
+    .select(p.band)
+    .mean()
+    .clip(roi);
 
   var viz = {min: p.min, max: p.max, palette: ['00ff00', 'ffff00', 'ff0000']};
   Map.layers().reset();
@@ -100,28 +110,42 @@ function runAnalysis(dateStr, pollutantName) {
   var stats = dataset.reduceRegion({
     reducer: ee.Reducer.mean(),
     geometry: roi,
-    scale: 1000,
+    scale: 500,
     maxPixels: 1e9
   });
   
   stats.evaluate(function(result) {
     if (!result || !result[p.band]) {
-      resultsPanel.add(ui.Label('لا توجد بيانات، جرب تاريخاً آخر.'));
+      resultsPanel.clear();
+      resultsPanel.add(ui.Label('لا توجد بيانات متاحة لهذا التاريخ.'));
       return;
     }
     
     var val = result[p.band];
     var percentage = (val / p.limit) * 100;
     
-    resultsPanel.add(ui.Label('--- نتائج التحليل ---', {fontWeight: 'bold'}));
-    resultsPanel.add(ui.Label('المادة: ' + pollutantName));
-    resultsPanel.add(ui.Label('التركيز المتوسط: ' + val.toFixed(6) + ' ' + p.unit));
+    var textColor = 'green';
+    if (percentage > 80 && percentage <= 120) textColor = '#DAA520'; 
+    if (percentage > 120) textColor = 'red';
+
+    resultsPanel.clear();
+    resultsPanel.add(ui.Label('--- تقرير جودة الهواء ---', {fontWeight: 'bold'}));
+    resultsPanel.add(ui.Label('المادة المختارة: ' + pollutantName));
+    resultsPanel.add(ui.Label('الحد الطبيعي/الآمن: ' + p.limit + ' ' + p.unit, {color: '#555'}));
+    
+    resultsPanel.add(ui.Label('القيمة المقاسة: ' + val.toFixed(6) + ' ' + p.unit, 
+      {color: textColor, fontWeight: 'bold'}));
+    
     resultsPanel.add(ui.Label('نسبة التلوث: ' + percentage.toFixed(1) + '%', 
-      {color: percentage > 100 ? 'red' : 'green', fontWeight: 'bold'}));
+      {color: textColor, fontWeight: 'bold', fontSize: '16px'}));
+      
+    var statusText = percentage > 100 ? 'تنبيه: القيمة تتجاوز الحدود الطبيعية' : 'الحالة: القيمة ضمن النطاق الآمن';
+    // تصحيح الخطأ هنا: استخدام fontStyle بدلاً من italic
+    resultsPanel.add(ui.Label(statusText, {color: textColor, fontStyle: 'italic'}));
   });
 }
 
-// 4. دليل الألوان (Legend)
+// 4. دليل الألوان
 var legend = ui.Panel({style: {position: 'bottom-right', padding: '8px 15px'}});
 legend.add(ui.Label('مستوى التلوث'));
 var makeRow = function(color, name) {
@@ -130,6 +154,6 @@ var makeRow = function(color, name) {
   return ui.Panel({widgets: [colorBox, description], layout: ui.Panel.Layout.Flow('horizontal')});
 };
 legend.add(makeRow('00ff00', 'منخفض (آمن)'));
-legend.add(makeRow('ffff00', 'متوسط'));
+legend.add(makeRow('ffff00', 'متوسط (حذر)'));
 legend.add(makeRow('ff0000', 'مرتفع (خطر)'));
 Map.add(legend);
