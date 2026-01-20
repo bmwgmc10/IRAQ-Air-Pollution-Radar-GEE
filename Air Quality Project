@@ -1,11 +1,11 @@
 // 1. إعداد الواجهة الجانبية
 var panel = ui.Panel({
-  style: {width: '350px', padding: '15px', border: '1px solid #ccc'}
+  style: {width: '420px', padding: '15px', border: '1px solid #ccc'}
 });
 ui.root.add(panel);
 
 panel.add(ui.Label({
-  value: 'نظام رصد الملوثات الجوية الذكي',
+  value: 'نظام رصد الملوثات - التقرير الشامل',
   style: {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50', textAlign: 'center'}
 }));
 
@@ -35,125 +35,109 @@ var clearButton = ui.Button({
   style: {stretch: 'horizontal'}
 });
 
-var buttonPanel = ui.Panel({
-  widgets: [drawButton, clearButton],
-  layout: ui.Panel.Layout.Flow('horizontal'),
-  style: {stretch: 'horizontal'}
-});
-panel.add(buttonPanel);
+panel.add(ui.Panel([drawButton, clearButton], ui.Panel.Layout.Flow('horizontal')));
 
-panel.add(ui.Label('2. تحديد التاريخ:'));
+panel.add(ui.Label('2. التاريخ المختارة:'));
 var dateInput = ui.Textbox({value: '2025-06-01', style: {width: '100%'}});
 panel.add(dateInput);
 
-panel.add(ui.Label('3. اختيار المادة الملوثة:'));
-
-var pollutants = {
-  'ثاني أكسيد النيتروجين (NO2)': {id: 'COPERNICUS/S5P/OFFL/L3_NO2', band: 'tropospheric_NO2_column_number_density', min: 0, max: 0.0002, limit: 0.0001, unit: 'mol/m²'},
-  'أول أكسيد الكربون (CO)': {id: 'COPERNICUS/S5P/OFFL/L3_CO', band: 'CO_column_number_density', min: 0, max: 0.05, limit: 0.03, unit: 'mol/m²'},
-  'ثاني أكسيد الكبريت (SO2)': {id: 'COPERNICUS/S5P/OFFL/L3_SO2', band: 'SO2_column_number_density', min: 0, max: 0.0005, limit: 0.0002, unit: 'mol/m²'},
-  'الأوزون (O3)': {id: 'COPERNICUS/S5P/OFFL/L3_O3', band: 'O3_column_number_density', min: 0.1, max: 0.2, limit: 0.15, unit: 'mol/m²'},
-  'الميثان (CH4)': {id: 'COPERNICUS/S5P/OFFL/L3_CH4', band: 'CH4_column_volume_mixing_ratio_dry_air', min: 1750, max: 1950, limit: 1850, unit: 'ppbV'},
-  'الفورمالديهايد (HCHO)': {id: 'COPERNICUS/S5P/OFFL/L3_HCHO', band: 'tropospheric_HCHO_column_number_density', min: 0, max: 0.0003, limit: 0.0001, unit: 'mol/m²'},
-  'مؤشر الهباء الجوي (Aerosols)': {id: 'COPERNICUS/S5P/OFFL/L3_AER_AI', band: 'absorbing_aerosol_index', min: -1, max: 2, limit: 1, unit: 'Index'}
-};
-
-var select = ui.Select({
-  items: Object.keys(pollutants),
-  placeholder: 'اختر المادة من هنا...',
-  style: {width: '100%'}
-});
-panel.add(select);
-
 var runButton = ui.Button({
-  label: 'تشغيل التحليل السريع',
-  onClick: function() {
-    runAnalysis(dateInput.getValue(), select.getValue());
-  },
-  style: {width: '100%', fontWeight: 'bold', backgroundColor: '#e74c3c', color: 'white'}
+  label: 'تحليل كافة الملوثات وإصدار الجدول',
+  onClick: function() { runGlobalAnalysis(dateInput.getValue()); },
+  style: {width: '100%', fontWeight: 'bold', backgroundColor: '#2ecc71', color: 'white'}
 });
 panel.add(runButton);
 
 var resultsPanel = ui.Panel();
 panel.add(resultsPanel);
 
-// 3. وظيفة التحليل
-function runAnalysis(dateStr, pollutantName) {
-  var drawingTools = Map.drawingTools();
-  var layers = drawingTools.layers();
-  
-  if (layers.length() === 0) { alert('يرجى رسم المنطقة أولاً!'); return; }
-  if (!pollutantName) { alert('يرجى اختيار مادة ملوثة!'); return; }
+// 3. قاعدة البيانات المحدثة (بالعربي والإنجليزي)
+var pollutants = {
+  'ثاني أكسيد النيتروجين (NO2)': {id: 'COPERNICUS/S5P/OFFL/L3_NO2', band: 'tropospheric_NO2_column_number_density', limit: 0.0001, unit: 'mol/m²'},
+  'أول أكسيد الكربون (CO)': {id: 'COPERNICUS/S5P/OFFL/L3_CO', band: 'CO_column_number_density', limit: 0.03, unit: 'mol/m²'},
+  'ثاني أكسيد الكبريت (SO2)': {id: 'COPERNICUS/S5P/OFFL/L3_SO2', band: 'SO2_column_number_density', limit: 0.0002, unit: 'mol/m²'},
+  'الأوزون (O3)': {id: 'COPERNICUS/S5P/OFFL/L3_O3', band: 'O3_column_number_density', limit: 0.15, unit: 'mol/m²'},
+  'الميثان (CH4)': {id: 'COPERNICUS/S5P/OFFL/L3_CH4', band: 'CH4_column_volume_mixing_ratio_dry_air', limit: 1850, unit: 'ppbV'},
+  'ثاني أكسيد الكربون (CO2)': {id: 'ECMWF/CAMS/EAC4', band: 'co2_column_mean_mixing_ratio', limit: 415, unit: 'ppm'},
+  'الفورمالديهايد (HCHO)': {id: 'COPERNICUS/S5P/OFFL/L3_HCHO', band: 'tropospheric_HCHO_column_number_density', limit: 0.0001, unit: 'mol/m²'}
+};
 
+// 4. وظيفة التحليل الشامل
+function runGlobalAnalysis(dateStr) {
+  var layers = Map.drawingTools().layers();
+  if (layers.length() === 0) { alert('ارسم منطقة أولاً!'); return; }
+  
   resultsPanel.clear();
-  resultsPanel.add(ui.Label('جاري جلب البيانات...'));
+  resultsPanel.add(ui.Label('جاري تحليل كافة المواد...'));
   
-  var layer = layers.get(layers.length() - 1);
-  var roi = layer.getEeObject();
-  layer.setShown(false); 
-
-  var p = pollutants[pollutantName];
+  var roi = layers.get(layers.length() - 1).getEeObject();
   var start = ee.Date(dateStr);
   
-  var dataset = ee.ImageCollection(p.id)
-    .filterBounds(roi)
-    .filterDate(start, start.advance(14, 'day'))
-    .select(p.band)
-    .mean()
-    .clip(roi);
-
-  var viz = {min: p.min, max: p.max, palette: ['00ff00', 'ffff00', 'ff0000']};
-  Map.layers().reset();
-  Map.addLayer(dataset, viz, pollutantName);
-  Map.centerObject(roi, 10);
-
-  var stats = dataset.reduceRegion({
-    reducer: ee.Reducer.mean(),
-    geometry: roi,
-    scale: 500,
-    maxPixels: 1e9
-  });
+  // ترويسة الجدول بتنسيق أوضح
+  var header = ui.Panel([
+    ui.Label('اسم المادة (الاختصار)', {fontWeight: 'bold', width: '160px', fontSize: '12px'}),
+    ui.Label('النتيجة المقاسة', {fontWeight: 'bold', width: '110px', fontSize: '12px'}),
+    ui.Label('المعدل الطبيعي', {fontWeight: 'bold', width: '100px', fontSize: '12px'})
+  ], ui.Panel.Layout.Flow('horizontal'), {border: '1px solid #eee', backgroundColor: '#f9f9f9'});
   
-  stats.evaluate(function(result) {
-    if (!result || !result[p.band]) {
-      resultsPanel.clear();
-      resultsPanel.add(ui.Label('لا توجد بيانات متاحة لهذا التاريخ.'));
-      return;
-    }
-    
-    var val = result[p.band];
-    var percentage = (val / p.limit) * 100;
-    
-    var textColor = 'green';
-    if (percentage > 80 && percentage <= 120) textColor = '#DAA520'; 
-    if (percentage > 120) textColor = 'red';
+  var tablePanel = ui.Panel([header]);
 
-    resultsPanel.clear();
-    resultsPanel.add(ui.Label('--- تقرير جودة الهواء ---', {fontWeight: 'bold'}));
-    resultsPanel.add(ui.Label('المادة المختارة: ' + pollutantName));
-    resultsPanel.add(ui.Label('الحد الطبيعي/الآمن: ' + p.limit + ' ' + p.unit, {color: '#555'}));
+  Object.keys(pollutants).forEach(function(key) {
+    var p = pollutants[key];
+    var img = ee.ImageCollection(p.id)
+      .filterBounds(roi)
+      .filterDate(start, start.advance(1, 'month'))
+      .select(p.band).mean();
     
-    resultsPanel.add(ui.Label('القيمة المقاسة: ' + val.toFixed(6) + ' ' + p.unit, 
-      {color: textColor, fontWeight: 'bold'}));
-    
-    resultsPanel.add(ui.Label('نسبة التلوث: ' + percentage.toFixed(1) + '%', 
-      {color: textColor, fontWeight: 'bold', fontSize: '16px'}));
+    var stats = img.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: roi,
+      scale: (key.indexOf('CO2') !== -1) ? 10000 : 1000,
+      maxPixels: 1e9
+    });
+
+    stats.evaluate(function(result) {
+      if (!result || !result[p.band]) return;
+      var val = result[p.band];
+      var percentage = (val / p.limit) * 100;
       
-    var statusText = percentage > 100 ? 'تنبيه: القيمة تتجاوز الحدود الطبيعية' : 'الحالة: القيمة ضمن النطاق الآمن';
-    // تصحيح الخطأ هنا: استخدام fontStyle بدلاً من italic
-    resultsPanel.add(ui.Label(statusText, {color: textColor, fontStyle: 'italic'}));
+      // منطق تلوين الأرقام
+      var color = 'green';
+      if (percentage > 85) color = '#DAA520'; // أصفر داكن للوضوح
+      if (percentage > 115) color = 'red';
+
+      var row = ui.Panel([
+        ui.Label(key, {width: '160px', fontSize: '11px'}),
+        ui.Label(val.toFixed((key.indexOf('CH4') !== -1 || key.indexOf('CO2') !== -1) ? 1 : 6), 
+                 {width: '110px', color: color, fontWeight: 'bold', fontSize: '12px'}),
+        ui.Label(p.limit.toString(), {width: '100px', color: '#666', fontSize: '12px'})
+      ], ui.Panel.Layout.Flow('horizontal'), {border: '1px solid #f2f2f2'});
+      
+      tablePanel.add(row);
+    });
   });
+
+  resultsPanel.clear();
+  resultsPanel.add(ui.Label('--- تقرير جودة الهواء التفصيلي ---', {fontWeight: 'bold', margin: '10px 0'}));
+  resultsPanel.add(tablePanel);
+  
+  // خريطة حرارية افتراضية (NO2)
+  var no2Img = ee.ImageCollection(pollutants['ثاني أكسيد النيتروجين (NO2)'].id)
+    .filterBounds(roi).filterDate(start, start.advance(14, 'day'))
+    .select(pollutants['ثاني أكسيد النيتروجين (NO2)'].band).mean().clip(roi);
+  Map.layers().reset();
+  Map.addLayer(no2Img, {min: 0, max: 0.0002, palette: ['green', 'yellow', 'red']}, 'خريطة NO2');
+  Map.centerObject(roi, 10);
 }
 
-// 4. دليل الألوان
+// 5. دليل الألوان
 var legend = ui.Panel({style: {position: 'bottom-right', padding: '8px 15px'}});
-legend.add(ui.Label('مستوى التلوث'));
+legend.add(ui.Label('مستوى التلوث', {fontWeight: 'bold'}));
 var makeRow = function(color, name) {
   var colorBox = ui.Label({style: {backgroundColor: color, padding: '8px', margin: '0 0 4px 0'}});
-  var description = ui.Label({value: name, style: {margin: '0 0 4px 6px'}});
-  return ui.Panel({widgets: [colorBox, description], layout: ui.Panel.Layout.Flow('horizontal')});
+  return ui.Panel([colorBox, ui.Label(name, {margin: '0 0 4px 6px', fontSize: '12px'})], ui.Panel.Layout.Flow('horizontal'));
 };
-legend.add(makeRow('00ff00', 'منخفض (آمن)'));
-legend.add(makeRow('ffff00', 'متوسط (حذر)'));
-legend.add(makeRow('ff0000', 'مرتفع (خطر)'));
+legend.add(makeRow('green', 'آمن (ضمن الطبيعي)'));
+legend.add(makeRow('#DAA520', 'متوسط (حذر)'));
+legend.add(makeRow('red', 'خطر (تجاوز الحد)'));
 Map.add(legend);
