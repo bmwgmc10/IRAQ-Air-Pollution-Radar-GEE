@@ -1,49 +1,44 @@
-/**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var geometry = /* color: #ffc82d */ee.Geometry.Polygon(
-        [[[43.187224282488934, 33.497199701227956],
-          [43.188940896258465, 33.497808089220705],
-          [43.18636597560417, 33.50034895756195],
-          [43.185207261309735, 33.50120782576941],
-          [43.18413437770378, 33.50034895756195],
-          [43.185464753375165, 33.49923957351497]]]);
-/***** End of imports. If edited, may not auto-convert in the playground. *****/
 // =================================================================
-// نظام مراقبة جودة المياه - النسخة المستقرة والمصححة 2026
+// نظام مراقبة جودة المياه المتقدم - نسخة عزل اليابسة (Water Mask)
 // =================================================================
 
-// 1. القاموس اللغوي (تم تقليل الرموز داخل النصوص لضمان استقرار الرسم البياني)
+// 1. القاموس اللغوي
 var dict = {
   'AR': {
-    title: 'نظام مراقبة ملوثات المياه',
+    title: '🌊 مراقبة ملوثات المياه',
     dateEntry: 'أدخل التاريخ (YYYY-MM-DD):',
-    draw: 'رسم المنطقة', 
-    clear: 'مسح الكل', 
-    run: 'تشغيل التحليل',
+    draw: '📍 رسم المنطقة', 
+    clear: '🗑️ مسح الكل', 
+    run: '▶️ تشغيل التحليل',
     langBtn: 'English',
-    report: 'تقرير جودة المياه:',
-    turb: 'العكارة', chl: 'الكلوروفيل', cdom: 'المواد العضوية',
+    report: '📊 تقرير جودة المياه (للمناطق المائية فقط):',
+    turb: 'العكارة (Turbidity)', 
+    chl: 'الكلوروفيل (Chlorophyll)', 
+    cdom: 'المواد العضوية (CDOM)',
     safe: 'آمن', warning: 'تنبيه', danger: 'خطر',
-    noArea: 'يرجى رسم منطقة أولاً'
+    noArea: '⚠️ يرجى رسم مضلع فوق المسطح المائي أولاً.'
   },
   'EN': {
-    title: 'Water Quality Monitoring',
+    title: '🌊 Water Quality Monitoring',
     dateEntry: 'Enter Date (YYYY-MM-DD):',
-    draw: 'Draw Area', 
-    clear: 'Clear All', 
-    run: 'Run Analysis',
+    draw: '📍 Draw Area', 
+    clear: '🗑️ Clear All', 
+    run: '▶️ Run Analysis',
     langBtn: 'العربية',
-    report: 'Water Quality Report:',
-    turb: 'Turbidity', chl: 'Chlorophyll', cdom: 'CDOM',
+    report: '📊 Water Quality Report (Water Pixels Only):',
+    turb: 'Turbidity', 
+    chl: 'Chlorophyll', 
+    cdom: 'CDOM',
     safe: 'Safe', warning: 'Warning', danger: 'Danger',
-    noArea: 'Please draw an area first'
+    noArea: '⚠️ Please draw a polygon over water first.'
   }
 };
 
 var currentLang = 'AR';
 
 // 2. إعداد الواجهة الجانبية
-var panel = ui.Panel({style: {width: '380px', padding: '15px'}});
-var titleLabel = ui.Label(dict[currentLang].title, {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50'});
+var panel = ui.Panel({style: {width: '380px', padding: '15px', border: '1px solid #ccc'}});
+var titleLabel = ui.Label(dict[currentLang].title, {fontSize: '20px', fontWeight: 'bold', color: '#2980b9'});
 var dateLabel = ui.Label(dict[currentLang].dateEntry);
 var dateInput = ui.Textbox({value: '2024-05-01', style: {width: '150px'}});
 
@@ -59,10 +54,12 @@ var chartPanel = ui.Panel();
 panel.add(titleLabel).add(dateLabel).add(dateInput).add(buttonPanel).add(resultsPanel).add(chartPanel);
 ui.root.insert(0, panel);
 
-// إخفاء شريط التاريخ العلوي نهائياً
+// إخفاء شريط التاريخ العلوي والتحكم في الخريطة
 Map.setControlVisibility({dateLayer: false});
+var drawingTools = Map.drawingTools();
+drawingTools.setShown(true);
 
-// 3. تحديث اللغة
+// 3. وظائف الأزرار وتحديث اللغة
 langBtn.onClick(function() {
   currentLang = (currentLang === 'AR' ? 'EN' : 'AR');
   titleLabel.setValue(dict[currentLang].title);
@@ -75,25 +72,42 @@ langBtn.onClick(function() {
   chartPanel.clear();
 });
 
-// 4. وظائف الرسم
 btnSelect.onClick(function() {
-  Map.drawingTools().setShape('polygon');
-  Map.drawingTools().draw();
+  drawingTools.setShape('polygon');
+  drawingTools.draw();
 });
 
 btnClear.onClick(function() {
-  Map.drawingTools().layers().reset();
+  drawingTools.layers().reset();
   resultsPanel.clear();
   chartPanel.clear();
   Map.layers().reset();
 });
 
-// 5. دالة التحليل
+// 4. دالة الحساب مع قناع المياه (Water Mask)
+var processImage = function(img) {
+  var t = img.get('system:time_start');
+  
+  // حساب مؤشر المياه NDWI لعزل اليابسة
+  var ndwi = img.normalizedDifference(['B3', 'B8']).rename('NDWI');
+  var waterMask = ndwi.gt(0.1); // البكسلات التي قيمتها أكبر من 0.1 تعتبر مياه
+  
+  // تطبيق القناع
+  var maskedImg = img.updateMask(waterMask);
+  
+  var turb = maskedImg.normalizedDifference(['B4', 'B3']).rename('Turbidity');
+  var chl = maskedImg.normalizedDifference(['B5', 'B4']).rename('Chlorophyll');
+  var cdom = maskedImg.select('B3').divide(maskedImg.select('B4')).rename('CDOM');
+  
+  return maskedImg.addBands([turb, chl, cdom]).set('system:time_start', t);
+};
+
+// 5. دالة التحليل الرئيسية
 function analyze() {
   resultsPanel.clear();
   chartPanel.clear();
   
-  var layers = Map.drawingTools().layers();
+  var layers = drawingTools.layers();
   if (layers.length() === 0) {
     resultsPanel.add(ui.Label(dict[currentLang].noArea, {color: 'red'}));
     return;
@@ -104,58 +118,58 @@ function analyze() {
 
   var collection = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterBounds(geometry)
-    .filterDate(userDate.advance(-3, 'month'), userDate.advance(3, 'month'))
+    .filterDate(userDate.advance(-4, 'month'), userDate.advance(4, 'month'))
     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20));
 
   var s2 = collection.filterDate(userDate, userDate.advance(1, 'month')).first();
   if (!s2) {
-    resultsPanel.add(ui.Label('No Images Found', {color: 'red'}));
+    resultsPanel.add(ui.Label('❌ لا توجد صور في هذا التاريخ.', {color: 'red'}));
     return;
   }
 
-  var calcInd = function(img) {
-    var t = img.get('system:time_start');
-    var turb = img.normalizedDifference(['B4', 'B3']).rename('Turbidity');
-    var chl = img.normalizedDifference(['B5', 'B4']).rename('Chlorophyll');
-    var cdom = img.select('B3').divide(img.select('B4')).rename('CDOM');
-    return img.addBands([turb, chl, cdom]).set('system:time_start', t);
-  };
-
-  var processed = calcInd(s2);
+  var finalImg = processImage(s2);
   
-  processed.select(['Turbidity', 'Chlorophyll', 'CDOM']).reduceRegion({
-    reducer: ee.Reducer.mean(), 
-    geometry: geometry, 
-    scale: 10
-  }).evaluate(function(res) {
-    if (!res) return;
-    resultsPanel.add(ui.Label(dict[currentLang].report, {fontWeight: 'bold'}));
+  // جلب الإحصائيات
+  var stats = finalImg.select(['Turbidity', 'Chlorophyll', 'CDOM']).reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: geometry,
+    scale: 10,
+    maxPixels: 1e9
+  });
+
+  stats.evaluate(function(res) {
+    if (!res || res.Turbidity === null) {
+      resultsPanel.add(ui.Label('⚠️ تنبيه: المنطقة المحددة لا تحتوي على مياه كافية للتحليل.', {color: 'orange'}));
+      return;
+    }
     
-    var show = function(val, id, labelKey) {
-      var color = val > 0.05 ? 'red' : (val > 0.02 ? 'orange' : 'green');
+    resultsPanel.add(ui.Label(dict[currentLang].report, {fontWeight: 'bold', fontSize: '15px'}));
+    
+    var showMetric = function(val, labelKey) {
+      var color = val > 0.05 ? 'red' : (val > 0.02 ? '#f39c12' : 'green');
       var status = val > 0.05 ? dict[currentLang].danger : (val > 0.02 ? dict[currentLang].warning : dict[currentLang].safe);
-      resultsPanel.add(ui.Label(dict[currentLang][labelKey] + ': ' + val.toFixed(3) + ' (' + status + ')', {color: color}));
+      resultsPanel.add(ui.Label('• ' + dict[currentLang][labelKey] + ': ' + val.toFixed(3) + ' [' + status + ']', {color: color, fontWeight: 'bold'}));
     };
-    
-    show(res.Turbidity, 'turb', 'turb');
-    show(res.Chlorophyll, 'chl', 'chl');
-    show(res.CDOM, 'cdom', 'cdom');
+
+    showMetric(res.Turbidity, 'turb');
+    showMetric(res.Chlorophyll, 'chl');
+    showMetric(res.CDOM, 'cdom');
   });
 
-  // الرسم البياني بصيغة "خام" لتجنب أخطاء Syntax
-  var chartCol = collection.map(calcInd).select(['Turbidity', 'Chlorophyll', 'CDOM']);
+  // الرسم البياني (سلسلة زمنية للمياه فقط)
+  var chartCol = collection.map(processImage).select(['Turbidity', 'Chlorophyll', 'CDOM']);
   var chart = ui.Chart.image.series(chartCol, geometry, ee.Reducer.mean(), 30);
-  
   chart.setOptions({
-    title: 'Water Quality Indices',
-    hAxis: {title: 'Date'},
+    title: 'Water Quality Trend',
     vAxis: {title: 'Value'},
-    series: { 0: {color: 'brown'}, 1: {color: 'green'}, 2: {color: 'blue'} }
+    hAxis: {title: 'Date'},
+    series: {0: {color: 'brown'}, 1: {color: 'green'}, 2: {color: 'blue'}}
   });
-  
   chartPanel.add(chart);
-  Map.centerObject(geometry, 14);
-  Map.addLayer(s2, {bands:['B4','B3','B2'], max:3000}, 'Satellite');
+
+  Map.layers().reset();
+  Map.addLayer(s2, {bands:['B4','B3','B2'], max:3000}, 'Satellite View');
+  Map.addLayer(finalImg.select('Turbidity'), {min: -0.1, max: 0.1, palette: ['blue', 'green', 'yellow', 'red']}, 'Turbidity Map');
 }
 
 btnRun.onClick(analyze);
