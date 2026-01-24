@@ -1,0 +1,180 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
+        [[[43.50004094370231, 33.271810595744306],
+          [43.532141621192544, 33.27669021398467],
+          [43.52802174814567, 33.303810178441296],
+          [43.4942044568859, 33.30007988972338]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// =================================================================
+// برنامج مراقبة جودة مياه الأنهار والتحليل الزمني
+// =================================================================
+
+// 1. إعداد الواجهة الجانبية
+var panel = ui.Panel({
+  style: {width: '380px', padding: '15px', border: '2px solid #2c3e50'}
+});
+
+var title = ui.Label({
+  value: '🔍 نظام مراقبة جودة المياه الذكي',
+  style: {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50', textAlign: 'center', margin: '10px 0'}
+});
+
+// 2. أدوات اختيار التاريخ والمنطقة
+var dateLabel = ui.Label('1. اختر تاريخ الدراسة:', {fontWeight: 'bold'});
+var dateSlider = ui.DateSlider({
+  start: '2019-01-01',
+  end: Date.now(),
+  value: '2023-06-01',
+  period: 1,
+  style: {width: '95%'}
+});
+
+var toolLabel = ui.Label('2. ارسم مضلعاً فوق منطقة النهر:', {fontWeight: 'bold'});
+var btnSelect = ui.Button({
+  label: '📍 تفعيل أداة الرسم',
+  onClick: function() {
+    Map.drawingTools().setShape('polygon');
+    Map.drawingTools().draw();
+  },
+  style: {width: '95%', color: 'blue'}
+});
+
+var btnClear = ui.Button({
+  label: '🗑️ مسح وإعادة اختيار منطقة',
+  onClick: function() {
+    var layers = Map.drawingTools().layers();
+    if (layers.length() > 0) {
+      layers.get(0).geometries().clear();
+      resultsPanel.clear();
+      chartPanel.clear();
+      Map.layers().reset();
+    }
+  },
+  style: {width: '95%', color: 'red'}
+});
+
+// 3. حاويات النتائج والرسوم البيانية
+var resultsPanel = ui.Panel([ui.Label('بانتظار تحديد المنطقة...')]);
+var chartPanel = ui.Panel();
+
+panel.add(title)
+     .add(dateLabel)
+     .add(dateSlider)
+     .add(toolLabel)
+     .add(btnSelect)
+     .add(btnClear)
+     .add(ui.Label('---'))
+     .add(resultsPanel)
+     .add(chartPanel);
+
+ui.root.insert(0, panel);
+
+// 4. دالة التحليل الرئيسية
+function analyzeWater() {
+  resultsPanel.clear();
+  chartPanel.clear();
+  resultsPanel.add(ui.Label('⏳ جاري تحليل البيانات فضائياً...', {color: 'gray'}));
+  
+  // الحصول على المنطقة المرسومة
+  var drawingLayers = Map.drawingTools().layers();
+  if (drawingLayers.length() === 0) return;
+  var geometry = drawingLayers.get(0).getEeObject();
+  
+  // تصحيح الحصول على التاريخ لتجنب خطأ الـ split
+  var dateRange = dateSlider.getValue();
+  var selectedDate = ee.Date(dateRange[0]); 
+  
+  // جلب صور Sentinel-2 (نستخدم المستوى 2A المصحح جوياً)
+  var collection = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+    .filterBounds(geometry)
+    .filterDate(selectedDate.advance(-6, 'month'), selectedDate.advance(6, 'month'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20));
+
+  var s2Image = collection.filterDate(selectedDate, selectedDate.advance(1, 'month')).first();
+
+  if (!s2Image) {
+    resultsPanel.clear();
+    resultsPanel.add(ui.Label('❌ عذراً، لا توجد صور واضحة (خالية من السحب) في هذا التاريخ لهذه المنطقة.'));
+    return;
+  }
+
+  // حساب مؤشر NDTI (Normalized Difference Turbidity Index)
+  // المعادلة: (Red - Green) / (Red + Green)
+  var ndti = s2Image.normalizedDifference(['B4', 'B3']).rename('NDTI');
+  
+  var stats = ndti.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: geometry,
+    scale: 10
+  });
+
+  // 5. مقارنة النتائج مع المعايير وتحديث الواجهة
+  stats.evaluate(function(result) {
+    if (!result || result.NDTI === null) {
+      resultsPanel.clear();
+      resultsPanel.add(ui.Label('⚠️ خطأ: المنطقة المختارة قد تكون خارج حدود الصورة.'));
+      return;
+    }
+
+    var val = result.NDTI.toFixed(3);
+    var status = '';
+    var color = '';
+    var explanation = '';
+    
+    // تصنيف جودة المياه بناءً على الدراسات العلمية لمؤشر NDTI
+    if (val < -0.1) { 
+      status = 'مياه نظيفة جداً'; color = 'green'; 
+      explanation = 'المياه تظهر نقاءً عالياً وتوافق المعايير العالمية للمياه الصالحة.';
+    }
+    else if (val >= -0.1 && val < 0.05) { 
+      status = 'جودة مقبولة'; color = '#2ecc71'; 
+      explanation = 'عكارة منخفضة، المياه ضمن النطاق الطبيعي للأنهار.';
+    }
+    else if (val >= 0.05 && val < 0.2) { 
+      status = 'تلوث متوسط / عكارة'; color = 'orange'; 
+      explanation = 'تنبيه: توجد مواد عالقة أو رواسب طينية قد تشير لتلوث موضعي.';
+    }
+    else { 
+      status = 'تلوث عالٍ جداً'; color = 'red'; 
+      explanation = 'تحذير: عكارة مرتفعة جداً ورواسب كثيفة، لا توافق المعايير الصحية.';
+    }
+
+    resultsPanel.clear();
+    resultsPanel.add(ui.Label('✅ التقرير التحليلي:', {fontWeight: 'bold', fontSize: '16px'}));
+    resultsPanel.add(ui.Label('• التاريخ المستهدف: ' + selectedDate.format('yyyy-MM-dd').getInfo()));
+    resultsPanel.add(ui.Label('• مؤشر العكارة (NDTI): ' + val));
+    resultsPanel.add(ui.Label('• التقييم: ' + status, {color: color, fontWeight: 'bold', fontSize: '14px'}));
+    resultsPanel.add(ui.Label('📝 التفسير: ' + explanation, {fontSize: '12px', italic: true}));
+  });
+
+  // 6. رسم الرسم البياني الزمني (Chart)
+  var timeSeriesChart = ui.Chart.image.seriesByRegion({
+    imageCollection: collection.select(['B4'], ['Turbidity_Index']),
+    regions: geometry,
+    reducer: ee.Reducer.mean(),
+    scale: 20,
+    xProperty: 'system:time_start'
+  }).setOptions({
+    title: 'تذبذب مستوى جودة المياه عبر الزمن (6 أشهر قبل وبعد التاريخ)',
+    vAxis: {title: 'انعكاس النطاق الأحمر (مؤشر عكارة)'},
+    hAxis: {title: 'التاريخ'},
+    colors: ['#e67e22'],
+    lineWidth: 2,
+    pointSize: 4,
+    trendlines: {0: {color: 'blue', lineWidth: 1, opacity: 0.3}}
+  });
+
+  chartPanel.add(timeSeriesChart);
+  
+  // إضافة الصورة للخريطة للعرض البصري
+  Map.layers().reset();
+  Map.addLayer(s2Image, {bands:['B4','B3','B2'], max:3000}, 'صورة النهر الطبيعية');
+  Map.centerObject(geometry, 14);
+}
+
+// تشغيل التحليل تلقائياً عند انتهاء الرسم
+Map.drawingTools().onDraw(analyzeWater);
+
+// تجميل الخريطة
+Map.setOptions('SATELLITE');
+Map.style().set('cursor', 'crosshair');
