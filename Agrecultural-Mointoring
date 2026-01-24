@@ -1,9 +1,5 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var geometry = /* color: #d63000 */ee.Geometry.Polygon(
-        [[[43.18746895721038, 33.477896305285014],
-          [43.19442124297698, 33.473922898989905],
-          [43.20107312133391, 33.480974674970305],
-          [43.19463581969817, 33.484124521413925]]]),
+var geometry = /* color: #d63000 */ee.Geometry.MultiPoint(),
     field = /* color: #ff0000 */ee.Geometry.MultiPoint(),
     field2 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
     field3 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
