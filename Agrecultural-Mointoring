@@ -1,159 +1,209 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var field = /* color: #ff0000 */ee.Geometry.Polygon(
-        [[[48.808453378966455, 37.56951145079994],
-          [48.970501718810205, 37.56080302204628],
-          [48.98560791998208, 37.65001614325805],
-          [48.866131601622705, 37.659801309994826]]]);
+var geometry = /* color: #d63000 */ee.Geometry.Polygon(
+        [[[43.18746895721038, 33.477896305285014],
+          [43.19442124297698, 33.473922898989905],
+          [43.20107312133391, 33.480974674970305],
+          [43.19463581969817, 33.484124521413925]]]),
+    field = /* color: #ff0000 */ee.Geometry.MultiPoint(),
+    field2 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
+    field3 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
+    field4 = /* color: #ff0000 */ee.Geometry.MultiPoint();
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 /**
- * منصة المراقبة الزراعية المتقدمة - نسخة معالجة أخطاء الخادم (Tile Error)
+ * منصة المراقبة الزراعية المتقدمة - نسخة ثنائية اللغة 2026
  */
 
-// --- 1. إعداد الواجهة الجانبية ---
+// --- 1. قاموس اللغات (Dictionary) ---
+var dict = {
+  'العربية': {
+    title: '🌱 لوحة التحكم والتقرير الزراعي',
+    step1: '1. تحديد منطقة الدراسة:',
+    draw: '📐 رسم حدود الحقل',
+    clear: '🗑️ مسح وإعادة تعيين',
+    step2: '2. العمليات:',
+    run: '🚀 تشغيل التحليل وإصدار التقرير',
+    step3: '3. اختر تاريخ المراقبة:',
+    errorNoGeom: '⚠️ فضلاً ارسم المضلع أولاً!',
+    loading: 'جاري التحليل... ⏳',
+    errorNoData: '❌ لا توجد بيانات كافية لهذا التاريخ.',
+    reportTitle: '📊 تقرير حالة الحقل:',
+    ndvi: 'صحة النبات (NDVI)',
+    ndwi: 'رطوبة التربة (NDWI)',
+    lst: 'الحرارة الحالية (LST)',
+    adviceTitle: '📝 التقرير الواقعي والتوصيات:',
+    adviceGood: '• واقع الحقل: نمو ممتاز وصحي.\n• التوصية: استمر في مراقبة الري.',
+    adviceBad: '• واقع الحقل: النبات يعاني من ضعف في النمو.\n• التوصية: تعزيز التسميد وفحص الآفات.',
+    adviceHeat: '\n• تحذير: إجهاد حراري مرتفع، يفضل زيادة الري.',
+    mapLayer: 'خريطة الصحة'
+  },
+  'English': {
+    title: '🌱 Agricultural Control Dashboard',
+    step1: '1. Define Study Area:',
+    draw: '📐 Draw Field Boundaries',
+    clear: '🗑️ Clear & Reset',
+    step2: '2. Operations:',
+    run: '🚀 Run Analysis & Report',
+    step3: '3. Select Monitoring Date:',
+    errorNoGeom: '⚠️ Please draw a polygon first!',
+    loading: 'Analyzing... ⏳',
+    errorNoData: '❌ No enough data for this date.',
+    reportTitle: '📊 Field Condition Report:',
+    ndvi: 'Plant Health (NDVI)',
+    ndwi: 'Soil Moisture (NDWI)',
+    lst: 'Current Temp (LST)',
+    adviceTitle: '📝 Real-time Report & Advice:',
+    adviceGood: '• Status: Excellent & healthy growth.\n• Advice: Maintain current irrigation.',
+    adviceBad: '• Status: Plant growth is weak.\n• Advice: Boost fertilization & check for pests.',
+    adviceHeat: '\n• Warning: High heat stress, increase irrigation.',
+    mapLayer: 'Health Map'
+  }
+};
+
+var lang = 'العربية'; // اللغة الافتراضية
+
+// --- 2. إعداد الواجهة الجانبية ---
 var mainPanel = ui.Panel({
   style: {width: '380px', padding: '12px', border: '2px solid #2e7d32'}
 });
 
-var title = ui.Label('🌱 لوحة التحكم والتقرير الزراعي', {
-  fontSize: '20px', fontWeight: 'bold', color: '#2e7d32', margin: '0 0 10px 0'
+// زر تبديل اللغة
+var langSelect = ui.Select({
+  items: Object.keys(dict),
+  value: lang,
+  onChange: function(value) {
+    lang = value;
+    refreshUI();
+  },
+  style: {position: 'top-right'}
 });
-mainPanel.add(title);
 
-// --- 2. أدوات الرسم والمسح ---
+var titleLabel = ui.Label('', {fontSize: '20px', fontWeight: 'bold', color: '#2e7d32', margin: '0 0 10px 0'});
+var step1Label = ui.Label('', {fontWeight: 'bold'});
+var btnDraw = ui.Button('');
+var btnClear = ui.Button('');
+var step2Label = ui.Label('', {fontWeight: 'bold', margin: '10px 0 5px 0'});
+var btnRun = ui.Button({style: {stretch: 'horizontal', fontWeight: 'bold', color: '#1b5e20'}});
+var step3Label = ui.Label('', {fontWeight: 'bold', margin: '10px 0 0 0'});
+
+// تجميع العناصر في اللوحة
+mainPanel.add(langSelect).add(titleLabel).add(step1Label);
+mainPanel.add(ui.Panel([btnDraw, btnClear], ui.Panel.Layout.Flow('horizontal')));
+mainPanel.add(step2Label).add(btnRun);
+
+var resultsPanel = ui.Panel({
+  style: {margin: '15px 0 0 0', backgroundColor: '#f8f9fa', border: '1px solid #ddd', padding: '10px', shown: false}
+});
+mainPanel.add(resultsPanel);
+
+// --- 3. وظيفة تحديث النصوص (Refresh UI) ---
+function refreshUI() {
+  titleLabel.setValue(dict[lang].title);
+  step1Label.setValue(dict[lang].step1);
+  btnDraw.setLabel(dict[lang].draw);
+  btnClear.setLabel(dict[lang].clear);
+  step2Label.setValue(dict[lang].step2);
+  btnRun.setLabel(dict[lang].run);
+  step3Label.setValue(dict[lang].step3);
+  if (resultsPanel.style().get('shown')) runFullAnalysis(); // تحديث النتائج إذا كانت معروضة
+}
+
+// --- 4. أدوات الرسم ---
 var drawingManager = Map.drawingTools();
 drawingManager.setShown(false); 
 var drawLayer = ui.Map.GeometryLayer({name: 'field', color: 'red'});
 drawingManager.layers().add(drawLayer);
 
-var btnDraw = ui.Button('📐 رسم حدود الحقل', function() {
+btnDraw.onClick(function() {
   drawingManager.setShape('polygon');
   drawingManager.draw();
 });
 
-var btnClear = ui.Button('🗑️ مسح وإعادة تعيين', function() {
+btnClear.onClick(function() {
   var layers = drawingManager.layers();
-  if (layers.length() > 0) { layers.get(0).geometries().reset(); }
+  if (layers && layers.length() > 0) layers.get(0).geometries().reset();
   resultsPanel.clear();
   resultsPanel.style().set('shown', false);
   Map.layers().reset();
 });
 
-mainPanel.add(ui.Label('1. تحديد منطقة الدراسة:', {fontWeight: 'bold'}));
-mainPanel.add(ui.Panel([btnDraw, btnClear], ui.Panel.Layout.Flow('horizontal')));
-
-// --- 3. زر التشغيل ولوحة النتائج والتقرير ---
-var resultsPanel = ui.Panel({
-  style: {margin: '15px 0 0 0', backgroundColor: '#f8f9fa', border: '1px solid #ddd', padding: '10px', shown: false}
-});
-
-var btnRun = ui.Button({
-  label: '🚀 تشغيل التحليل وإصدار التقرير',
-  style: {stretch: 'horizontal', fontWeight: 'bold', color: '#1b5e20'},
-  onClick: function() { runFullAnalysis(); }
-});
-
-mainPanel.add(ui.Label('2. العمليات:', {fontWeight: 'bold', margin: '10px 0 5px 0'}));
-mainPanel.add(btnRun).add(resultsPanel);
-
-// --- 4. وظائف الحسابات المتقدمة (مع تحسين السرعة) ---
+// --- 5. وظائف الحسابات المتقدمة ---
 function getCombinedData(date, roi) {
   var d = ee.Date(date);
-  
-  // معالجة Sentinel-2 للمؤشرات الخضرية
   var s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-    .filterBounds(roi)
-    .filterDate(d.advance(-20, 'day'), d.advance(1, 'day'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
-    .median();
-  
+    .filterBounds(roi).filterDate(d.advance(-20, 'day'), d.advance(1, 'day'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30)).median();
   var ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI');
   var ndwi = s2.normalizedDifference(['B3', 'B8']).rename('NDWI');
-
-  // معالجة Landsat للحرارة
   var l8 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
-    .filterBounds(roi)
-    .filterDate(d.advance(-45, 'day'), d.advance(1, 'day'))
-    .median();
-  
+    .filterBounds(roi).filterDate(d.advance(-45, 'day'), d.advance(1, 'day')).median();
   var lst = l8.select('ST_B10').multiply(0.00341802).add(149.0).subtract(273.15).rename('LST');
-  
-  // دمج الطبقات وقصها لزيادة سرعة العرض ومنع Tile Error
   return ee.Image.cat([ndvi, ndwi, lst]).clip(roi);
 }
 
-// --- 5. دالة التحليل وإصدار التقرير الاستشاري ---
+// --- 6. دالة التشغيل الرئيسية ---
 function runFullAnalysis() {
-  var geometries = drawLayer.geometries();
-  if (geometries.length() === 0) {
+  var layers = drawingManager.layers();
+  var geometries = (layers.length() > 0) ? layers.get(0).geometries() : null;
+  
+  if (!geometries || geometries.length() === 0) {
     resultsPanel.style().set('shown', true);
     resultsPanel.clear();
-    resultsPanel.add(ui.Label('⚠️ فضلاً ارسم المضلع أولاً!', {color: 'red'}));
+    resultsPanel.add(ui.Label(dict[lang].errorNoGeom, {color: 'red'}));
     return;
   }
   
   resultsPanel.style().set('shown', true);
   resultsPanel.clear();
-  resultsPanel.add(ui.Label('جاري التحليل... ⏳', {color: '#666'}));
+  resultsPanel.add(ui.Label(dict[lang].loading, {color: '#666'}));
   
   var roi = ee.Geometry(geometries.get(0));
   var date = dateSlider.getValue()[0];
-  
-  // استخدام try-catch غير متاح في EEE لذا سنعتمد على التحقق من البيانات
   var data = getCombinedData(date, roi);
   
-  // حساب المتوسطات بدقة (Scale 30) لتجنب أخطاء الذاكرة
   var stats = data.reduceRegion({
     reducer: ee.Reducer.mean(),
     geometry: roi,
-    scale: 30, // تغيير الـ Scale إلى 30 يمنع معظم أخطاء Tile Error
+    scale: 30,
     maxPixels: 1e8
   });
 
   Map.centerObject(roi, 16);
-  Map.layers().set(0, ui.Map.Layer(data.select('NDVI'), {min: 0, max: 0.8, palette: ['#ecebb4', '#87af49', '#1e5109']}, 'خريطة صحة المحصول'));
+  Map.layers().set(0, ui.Map.Layer(data.select('NDVI'), {min: 0, max: 0.8, palette: ['#ecebb4', '#87af49', '#1e5109']}, dict[lang].mapLayer));
 
   stats.evaluate(function(res) {
     resultsPanel.clear();
-    if (!res || res.NDVI === null || res.NDVI === undefined) {
-      resultsPanel.add(ui.Label('❌ عذراً، لا تتوفر بيانات كافية لهذا التاريخ. جرب تاريخاً آخر أو وسع منطقة الرسم.', {color: 'red'}));
+    if (!res || res.NDVI === null) {
+      resultsPanel.add(ui.Label(dict[lang].errorNoData, {color: 'red'}));
       return;
     }
 
-    // عرض الأرقام
-    resultsPanel.add(ui.Label('📊 البيانات الرقمية للحقل:', {fontWeight: 'bold', color: '#2e7d32'}));
+    resultsPanel.add(ui.Label(dict[lang].reportTitle, {fontWeight: 'bold', color: '#2e7d32'}));
+    
     var createRow = function(n, v, u) {
-      return ui.Panel([ui.Label(n + ':', {width: '150px', fontSize: '12px'}), ui.Label(v.toFixed(2) + ' ' + u, {fontWeight: 'bold', fontSize: '12px'})], ui.Panel.Layout.Flow('horizontal'));
+      return ui.Panel([ui.Label(n + ':', {width: '180px', fontSize: '12px'}), ui.Label(v.toFixed(2) + ' ' + u, {fontWeight: 'bold', fontSize: '12px'})], ui.Panel.Layout.Flow('horizontal'));
     };
-    resultsPanel.add(createRow('صحة النبات (NDVI)', res.NDVI, ''));
-    resultsPanel.add(createRow('رطوبة التربة (NDWI)', res.NDWI, ''));
-    resultsPanel.add(createRow('الحرارة الحالية', res.LST, '°C'));
+    resultsPanel.add(createRow(dict[lang].ndvi, res.NDVI, ''));
+    resultsPanel.add(createRow(dict[lang].ndwi, res.NDWI, ''));
+    resultsPanel.add(createRow(dict[lang].lst, res.LST, '°C'));
 
-    // --- قسم التقرير والوصايا ---
     resultsPanel.add(ui.Label('________________________________', {color: '#ddd'}));
-    resultsPanel.add(ui.Label('📝 تقرير واقع الحقل الحالي:', {fontWeight: 'bold', margin: '10px 0 5px 0'}));
+    resultsPanel.add(ui.Label(dict[lang].adviceTitle, {fontWeight: 'bold', margin: '10px 0 5px 0'}));
     
-    var advice = "";
-    if (res.NDVI < 0.35) {
-      advice = "⚠️ الوضع الحالي: نمو النبات ضعيف. \n💡 يحتاج الحقل لتعزيز التسميد النيتروجيني وفحص التربة من الآفات.";
-    } else if (res.NDVI < 0.6) {
-      advice = "✅ الوضع الحالي: نمو متوسط ومستقر. \n💡 يفضل رش عناصر صغرى لتحفيز الكلوروفيل وزيادة الإنتاج.";
-    } else {
-      advice = "🌟 الوضع الحالي: نمو ممتاز. \n💡 استمر على نفس الجدول مع مراقبة الري بسبب درجات الحرارة.";
-    }
-    
-    if (res.LST > 38) {
-      advice += "\n\n🔥 تحذير حراري: الحرارة مرتفعة جداً، يرجى تكثيف الري المسائي.";
-    }
+    var advice = (res.NDVI < 0.4) ? dict[lang].adviceBad : dict[lang].adviceGood;
+    if (res.LST > 35) advice += dict[lang].adviceHeat;
 
     resultsPanel.add(ui.Label(advice, {fontSize: '12px', whiteSpace: 'pre', color: '#333', backgroundColor: '#fff', padding: '5px'}));
   });
 }
 
-// --- 6. التاريخ والواجهة ---
+// --- 7. التاريخ والواجهة ---
 var dateSlider = ui.DateSlider({
   start: '2024-01-01', end: '2026-01-21', value: '2026-01-21'
 });
-mainPanel.add(ui.Label('3. اختر تاريخ المراقبة:', {fontWeight: 'bold', margin: '10px 0 0 0'})).add(dateSlider);
+mainPanel.add(step3Label).add(dateSlider);
+
+btnRun.onClick(runFullAnalysis);
 
 ui.root.insert(0, mainPanel);
 Map.style().set('cursor', 'crosshair');
+refreshUI(); // تشغيل الواجهة لأول مرة
