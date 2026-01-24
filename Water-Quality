@@ -1,180 +1,161 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var geometry = /* color: #98ff00 */ee.Geometry.Polygon(
-        [[[43.50004094370231, 33.271810595744306],
-          [43.532141621192544, 33.27669021398467],
-          [43.52802174814567, 33.303810178441296],
-          [43.4942044568859, 33.30007988972338]]]);
+var geometry = /* color: #ffc82d */ee.Geometry.Polygon(
+        [[[43.187224282488934, 33.497199701227956],
+          [43.188940896258465, 33.497808089220705],
+          [43.18636597560417, 33.50034895756195],
+          [43.185207261309735, 33.50120782576941],
+          [43.18413437770378, 33.50034895756195],
+          [43.185464753375165, 33.49923957351497]]]);
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 // =================================================================
-// برنامج مراقبة جودة مياه الأنهار والتحليل الزمني
+// نظام مراقبة جودة المياه - النسخة المستقرة والمصححة 2026
 // =================================================================
 
-// 1. إعداد الواجهة الجانبية
-var panel = ui.Panel({
-  style: {width: '380px', padding: '15px', border: '2px solid #2c3e50'}
-});
-
-var title = ui.Label({
-  value: '🔍 نظام مراقبة جودة المياه الذكي',
-  style: {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50', textAlign: 'center', margin: '10px 0'}
-});
-
-// 2. أدوات اختيار التاريخ والمنطقة
-var dateLabel = ui.Label('1. اختر تاريخ الدراسة:', {fontWeight: 'bold'});
-var dateSlider = ui.DateSlider({
-  start: '2019-01-01',
-  end: Date.now(),
-  value: '2023-06-01',
-  period: 1,
-  style: {width: '95%'}
-});
-
-var toolLabel = ui.Label('2. ارسم مضلعاً فوق منطقة النهر:', {fontWeight: 'bold'});
-var btnSelect = ui.Button({
-  label: '📍 تفعيل أداة الرسم',
-  onClick: function() {
-    Map.drawingTools().setShape('polygon');
-    Map.drawingTools().draw();
+// 1. القاموس اللغوي (تم تقليل الرموز داخل النصوص لضمان استقرار الرسم البياني)
+var dict = {
+  'AR': {
+    title: 'نظام مراقبة ملوثات المياه',
+    dateEntry: 'أدخل التاريخ (YYYY-MM-DD):',
+    draw: 'رسم المنطقة', 
+    clear: 'مسح الكل', 
+    run: 'تشغيل التحليل',
+    langBtn: 'English',
+    report: 'تقرير جودة المياه:',
+    turb: 'العكارة', chl: 'الكلوروفيل', cdom: 'المواد العضوية',
+    safe: 'آمن', warning: 'تنبيه', danger: 'خطر',
+    noArea: 'يرجى رسم منطقة أولاً'
   },
-  style: {width: '95%', color: 'blue'}
-});
+  'EN': {
+    title: 'Water Quality Monitoring',
+    dateEntry: 'Enter Date (YYYY-MM-DD):',
+    draw: 'Draw Area', 
+    clear: 'Clear All', 
+    run: 'Run Analysis',
+    langBtn: 'العربية',
+    report: 'Water Quality Report:',
+    turb: 'Turbidity', chl: 'Chlorophyll', cdom: 'CDOM',
+    safe: 'Safe', warning: 'Warning', danger: 'Danger',
+    noArea: 'Please draw an area first'
+  }
+};
 
-var btnClear = ui.Button({
-  label: '🗑️ مسح وإعادة اختيار منطقة',
-  onClick: function() {
-    var layers = Map.drawingTools().layers();
-    if (layers.length() > 0) {
-      layers.get(0).geometries().clear();
-      resultsPanel.clear();
-      chartPanel.clear();
-      Map.layers().reset();
-    }
-  },
-  style: {width: '95%', color: 'red'}
-});
+var currentLang = 'AR';
 
-// 3. حاويات النتائج والرسوم البيانية
-var resultsPanel = ui.Panel([ui.Label('بانتظار تحديد المنطقة...')]);
+// 2. إعداد الواجهة الجانبية
+var panel = ui.Panel({style: {width: '380px', padding: '15px'}});
+var titleLabel = ui.Label(dict[currentLang].title, {fontSize: '20px', fontWeight: 'bold', color: '#2c3e50'});
+var dateLabel = ui.Label(dict[currentLang].dateEntry);
+var dateInput = ui.Textbox({value: '2024-05-01', style: {width: '150px'}});
+
+var btnSelect = ui.Button(dict[currentLang].draw);
+var btnClear = ui.Button(dict[currentLang].clear);
+var btnRun = ui.Button(dict[currentLang].run);
+var langBtn = ui.Button(dict[currentLang].langBtn);
+
+var buttonPanel = ui.Panel([btnSelect, btnClear, btnRun, langBtn], ui.Panel.Layout.flow('horizontal'));
+var resultsPanel = ui.Panel();
 var chartPanel = ui.Panel();
 
-panel.add(title)
-     .add(dateLabel)
-     .add(dateSlider)
-     .add(toolLabel)
-     .add(btnSelect)
-     .add(btnClear)
-     .add(ui.Label('---'))
-     .add(resultsPanel)
-     .add(chartPanel);
-
+panel.add(titleLabel).add(dateLabel).add(dateInput).add(buttonPanel).add(resultsPanel).add(chartPanel);
 ui.root.insert(0, panel);
 
-// 4. دالة التحليل الرئيسية
-function analyzeWater() {
+// إخفاء شريط التاريخ العلوي نهائياً
+Map.setControlVisibility({dateLayer: false});
+
+// 3. تحديث اللغة
+langBtn.onClick(function() {
+  currentLang = (currentLang === 'AR' ? 'EN' : 'AR');
+  titleLabel.setValue(dict[currentLang].title);
+  dateLabel.setValue(dict[currentLang].dateEntry);
+  btnSelect.setLabel(dict[currentLang].draw);
+  btnClear.setLabel(dict[currentLang].clear);
+  btnRun.setLabel(dict[currentLang].run);
+  langBtn.setLabel(dict[currentLang].langBtn);
   resultsPanel.clear();
   chartPanel.clear();
-  resultsPanel.add(ui.Label('⏳ جاري تحليل البيانات فضائياً...', {color: 'gray'}));
+});
+
+// 4. وظائف الرسم
+btnSelect.onClick(function() {
+  Map.drawingTools().setShape('polygon');
+  Map.drawingTools().draw();
+});
+
+btnClear.onClick(function() {
+  Map.drawingTools().layers().reset();
+  resultsPanel.clear();
+  chartPanel.clear();
+  Map.layers().reset();
+});
+
+// 5. دالة التحليل
+function analyze() {
+  resultsPanel.clear();
+  chartPanel.clear();
   
-  // الحصول على المنطقة المرسومة
-  var drawingLayers = Map.drawingTools().layers();
-  if (drawingLayers.length() === 0) return;
-  var geometry = drawingLayers.get(0).getEeObject();
+  var layers = Map.drawingTools().layers();
+  if (layers.length() === 0) {
+    resultsPanel.add(ui.Label(dict[currentLang].noArea, {color: 'red'}));
+    return;
+  }
   
-  // تصحيح الحصول على التاريخ لتجنب خطأ الـ split
-  var dateRange = dateSlider.getValue();
-  var selectedDate = ee.Date(dateRange[0]); 
-  
-  // جلب صور Sentinel-2 (نستخدم المستوى 2A المصحح جوياً)
+  var geometry = layers.get(0).getEeObject();
+  var userDate = ee.Date(dateInput.getValue());
+
   var collection = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterBounds(geometry)
-    .filterDate(selectedDate.advance(-6, 'month'), selectedDate.advance(6, 'month'))
+    .filterDate(userDate.advance(-3, 'month'), userDate.advance(3, 'month'))
     .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20));
 
-  var s2Image = collection.filterDate(selectedDate, selectedDate.advance(1, 'month')).first();
-
-  if (!s2Image) {
-    resultsPanel.clear();
-    resultsPanel.add(ui.Label('❌ عذراً، لا توجد صور واضحة (خالية من السحب) في هذا التاريخ لهذه المنطقة.'));
+  var s2 = collection.filterDate(userDate, userDate.advance(1, 'month')).first();
+  if (!s2) {
+    resultsPanel.add(ui.Label('No Images Found', {color: 'red'}));
     return;
   }
 
-  // حساب مؤشر NDTI (Normalized Difference Turbidity Index)
-  // المعادلة: (Red - Green) / (Red + Green)
-  var ndti = s2Image.normalizedDifference(['B4', 'B3']).rename('NDTI');
+  var calcInd = function(img) {
+    var t = img.get('system:time_start');
+    var turb = img.normalizedDifference(['B4', 'B3']).rename('Turbidity');
+    var chl = img.normalizedDifference(['B5', 'B4']).rename('Chlorophyll');
+    var cdom = img.select('B3').divide(img.select('B4')).rename('CDOM');
+    return img.addBands([turb, chl, cdom]).set('system:time_start', t);
+  };
+
+  var processed = calcInd(s2);
   
-  var stats = ndti.reduceRegion({
-    reducer: ee.Reducer.mean(),
-    geometry: geometry,
+  processed.select(['Turbidity', 'Chlorophyll', 'CDOM']).reduceRegion({
+    reducer: ee.Reducer.mean(), 
+    geometry: geometry, 
     scale: 10
-  });
-
-  // 5. مقارنة النتائج مع المعايير وتحديث الواجهة
-  stats.evaluate(function(result) {
-    if (!result || result.NDTI === null) {
-      resultsPanel.clear();
-      resultsPanel.add(ui.Label('⚠️ خطأ: المنطقة المختارة قد تكون خارج حدود الصورة.'));
-      return;
-    }
-
-    var val = result.NDTI.toFixed(3);
-    var status = '';
-    var color = '';
-    var explanation = '';
+  }).evaluate(function(res) {
+    if (!res) return;
+    resultsPanel.add(ui.Label(dict[currentLang].report, {fontWeight: 'bold'}));
     
-    // تصنيف جودة المياه بناءً على الدراسات العلمية لمؤشر NDTI
-    if (val < -0.1) { 
-      status = 'مياه نظيفة جداً'; color = 'green'; 
-      explanation = 'المياه تظهر نقاءً عالياً وتوافق المعايير العالمية للمياه الصالحة.';
-    }
-    else if (val >= -0.1 && val < 0.05) { 
-      status = 'جودة مقبولة'; color = '#2ecc71'; 
-      explanation = 'عكارة منخفضة، المياه ضمن النطاق الطبيعي للأنهار.';
-    }
-    else if (val >= 0.05 && val < 0.2) { 
-      status = 'تلوث متوسط / عكارة'; color = 'orange'; 
-      explanation = 'تنبيه: توجد مواد عالقة أو رواسب طينية قد تشير لتلوث موضعي.';
-    }
-    else { 
-      status = 'تلوث عالٍ جداً'; color = 'red'; 
-      explanation = 'تحذير: عكارة مرتفعة جداً ورواسب كثيفة، لا توافق المعايير الصحية.';
-    }
-
-    resultsPanel.clear();
-    resultsPanel.add(ui.Label('✅ التقرير التحليلي:', {fontWeight: 'bold', fontSize: '16px'}));
-    resultsPanel.add(ui.Label('• التاريخ المستهدف: ' + selectedDate.format('yyyy-MM-dd').getInfo()));
-    resultsPanel.add(ui.Label('• مؤشر العكارة (NDTI): ' + val));
-    resultsPanel.add(ui.Label('• التقييم: ' + status, {color: color, fontWeight: 'bold', fontSize: '14px'}));
-    resultsPanel.add(ui.Label('📝 التفسير: ' + explanation, {fontSize: '12px', italic: true}));
+    var show = function(val, id, labelKey) {
+      var color = val > 0.05 ? 'red' : (val > 0.02 ? 'orange' : 'green');
+      var status = val > 0.05 ? dict[currentLang].danger : (val > 0.02 ? dict[currentLang].warning : dict[currentLang].safe);
+      resultsPanel.add(ui.Label(dict[currentLang][labelKey] + ': ' + val.toFixed(3) + ' (' + status + ')', {color: color}));
+    };
+    
+    show(res.Turbidity, 'turb', 'turb');
+    show(res.Chlorophyll, 'chl', 'chl');
+    show(res.CDOM, 'cdom', 'cdom');
   });
 
-  // 6. رسم الرسم البياني الزمني (Chart)
-  var timeSeriesChart = ui.Chart.image.seriesByRegion({
-    imageCollection: collection.select(['B4'], ['Turbidity_Index']),
-    regions: geometry,
-    reducer: ee.Reducer.mean(),
-    scale: 20,
-    xProperty: 'system:time_start'
-  }).setOptions({
-    title: 'تذبذب مستوى جودة المياه عبر الزمن (6 أشهر قبل وبعد التاريخ)',
-    vAxis: {title: 'انعكاس النطاق الأحمر (مؤشر عكارة)'},
-    hAxis: {title: 'التاريخ'},
-    colors: ['#e67e22'],
-    lineWidth: 2,
-    pointSize: 4,
-    trendlines: {0: {color: 'blue', lineWidth: 1, opacity: 0.3}}
-  });
-
-  chartPanel.add(timeSeriesChart);
+  // الرسم البياني بصيغة "خام" لتجنب أخطاء Syntax
+  var chartCol = collection.map(calcInd).select(['Turbidity', 'Chlorophyll', 'CDOM']);
+  var chart = ui.Chart.image.series(chartCol, geometry, ee.Reducer.mean(), 30);
   
-  // إضافة الصورة للخريطة للعرض البصري
-  Map.layers().reset();
-  Map.addLayer(s2Image, {bands:['B4','B3','B2'], max:3000}, 'صورة النهر الطبيعية');
+  chart.setOptions({
+    title: 'Water Quality Indices',
+    hAxis: {title: 'Date'},
+    vAxis: {title: 'Value'},
+    series: { 0: {color: 'brown'}, 1: {color: 'green'}, 2: {color: 'blue'} }
+  });
+  
+  chartPanel.add(chart);
   Map.centerObject(geometry, 14);
+  Map.addLayer(s2, {bands:['B4','B3','B2'], max:3000}, 'Satellite');
 }
 
-// تشغيل التحليل تلقائياً عند انتهاء الرسم
-Map.drawingTools().onDraw(analyzeWater);
-
-// تجميل الخريطة
-Map.setOptions('SATELLITE');
-Map.style().set('cursor', 'crosshair');
+btnRun.onClick(analyze);
