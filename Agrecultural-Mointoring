@@ -1,12 +1,9 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
 var geometry = /* color: #d63000 */ee.Geometry.MultiPoint(),
-    field = /* color: #ff0000 */ee.Geometry.MultiPoint(),
-    field2 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
-    field3 = /* color: #ff0000 */ee.Geometry.MultiPoint(),
-    field4 = /* color: #ff0000 */ee.Geometry.MultiPoint();
+    field = /* color: #ff0000 */ee.Geometry.MultiPoint();
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 /**
- * منصة المراقبة الزراعية المتقدمة - نسخة ثنائية اللغة 2026
+ * منصة المراقبة الزراعية المتقدمة - نسخة الأنبار (الرمادي) 2026
  */
 
 // --- 1. قاموس اللغات (Dictionary) ---
@@ -55,14 +52,13 @@ var dict = {
   }
 };
 
-var lang = 'العربية'; // اللغة الافتراضية
+var lang = 'العربية'; 
 
 // --- 2. إعداد الواجهة الجانبية ---
 var mainPanel = ui.Panel({
   style: {width: '380px', padding: '12px', border: '2px solid #2e7d32'}
 });
 
-// زر تبديل اللغة
 var langSelect = ui.Select({
   items: Object.keys(dict),
   value: lang,
@@ -81,7 +77,6 @@ var step2Label = ui.Label('', {fontWeight: 'bold', margin: '10px 0 5px 0'});
 var btnRun = ui.Button({style: {stretch: 'horizontal', fontWeight: 'bold', color: '#1b5e20'}});
 var step3Label = ui.Label('', {fontWeight: 'bold', margin: '10px 0 0 0'});
 
-// تجميع العناصر في اللوحة
 mainPanel.add(langSelect).add(titleLabel).add(step1Label);
 mainPanel.add(ui.Panel([btnDraw, btnClear], ui.Panel.Layout.Flow('horizontal')));
 mainPanel.add(step2Label).add(btnRun);
@@ -91,7 +86,6 @@ var resultsPanel = ui.Panel({
 });
 mainPanel.add(resultsPanel);
 
-// --- 3. وظيفة تحديث النصوص (Refresh UI) ---
 function refreshUI() {
   titleLabel.setValue(dict[lang].title);
   step1Label.setValue(dict[lang].step1);
@@ -100,8 +94,14 @@ function refreshUI() {
   step2Label.setValue(dict[lang].step2);
   btnRun.setLabel(dict[lang].run);
   step3Label.setValue(dict[lang].step3);
-  if (resultsPanel.style().get('shown')) runFullAnalysis(); // تحديث النتائج إذا كانت معروضة
+  if (resultsPanel.style().get('shown')) runFullAnalysis(); 
 }
+
+// --- 3. إعداد الخارطة (الرمادي، الأنبار) ---
+// إحداثيات مركز مدينة الرمادي
+var ramadiCenter = [43.2980, 33.4210]; 
+Map.setCenter(ramadiCenter[0], ramadiCenter[1], 12); 
+Map.style().set('cursor', 'crosshair');
 
 // --- 4. أدوات الرسم ---
 var drawingManager = Map.drawingTools();
@@ -122,7 +122,7 @@ btnClear.onClick(function() {
   Map.layers().reset();
 });
 
-// --- 5. وظائف الحسابات المتقدمة ---
+// --- 5. وظائف الحسابات ---
 function getCombinedData(date, roi) {
   var d = ee.Date(date);
   var s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
@@ -201,5 +201,4 @@ mainPanel.add(step3Label).add(dateSlider);
 btnRun.onClick(runFullAnalysis);
 
 ui.root.insert(0, mainPanel);
-Map.style().set('cursor', 'crosshair');
-refreshUI(); // تشغيل الواجهة لأول مرة
+refreshUI();
