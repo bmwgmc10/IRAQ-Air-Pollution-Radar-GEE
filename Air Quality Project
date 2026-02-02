@@ -1,6 +1,18 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #d63000 */ee.Geometry.Polygon(
+        [[[-93.96953125, 36.99263620986117],
+          [-89.04765625000002, 36.64083037394416],
+          [-88.87187500000002, 39.477501770320906],
+          [-93.61796875, 39.74833420313561]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/**
+ * رادار التلوث الشامل - النسخة المنقحة والمصححة
+ * مخصص لمراقبة جودة الهواء وتحليل الغازات الدفيئة
+ */
+
 // 1. إعداد الواجهة الجانبية
 var panel = ui.Panel({
-  style: {width: '400px', padding: '15px', border: '1px solid #ccc'}
+  style: {width: '420px', padding: '15px', border: '1px solid #ccc'}
 });
 ui.root.add(panel);
 
@@ -10,9 +22,9 @@ panel.add(ui.Label({
 }));
 
 // 2. أزرار التحكم
-panel.add(ui.Label('1. التحكم في منطقة الدراسة:'));
+panel.add(ui.Label('1. التحكم في منطقة الدراسة:', {fontWeight: 'bold'}));
 var drawButton = ui.Button({
-  label: 'رسم منطقة جديدة',
+  label: 'رسم منطقة جديدة ⬠',
   onClick: function() {
     var drawingTools = Map.drawingTools();
     drawingTools.setShown(true);
@@ -23,7 +35,7 @@ var drawButton = ui.Button({
 });
 
 var clearButton = ui.Button({
-  label: 'إلغاء وتفريغ الخريطة',
+  label: 'إلغاء وتفريغ الخريطة 🗑️',
   onClick: function() {
     var drawingTools = Map.drawingTools();
     while (drawingTools.layers().length() > 0) {
@@ -37,21 +49,24 @@ var clearButton = ui.Button({
 
 panel.add(ui.Panel([drawButton, clearButton], ui.Panel.Layout.Flow('horizontal')));
 
-panel.add(ui.Label('2. التاريخ:'));
+panel.add(ui.Label('2. حدد تاريخ التحليل:', {fontWeight: 'bold'}));
 var dateInput = ui.Textbox({value: '2025-06-01', style: {width: '100%'}});
 panel.add(dateInput);
 
+var resultsPanel = ui.Panel();
+
 var runButton = ui.Button({
-  label: 'تحليل كافة الملوثات وإصدار الجدول',
-  onClick: function() { runGlobalAnalysis(dateInput.getValue()); },
+  label: 'تحليل كافة الملوثات وإصدار الجدول 📊',
+  onClick: function() { 
+    resultsPanel.clear();
+    runGlobalAnalysis(dateInput.getValue()); 
+  },
   style: {width: '100%', fontWeight: 'bold', backgroundColor: '#2ecc71', color: 'white'}
 });
 panel.add(runButton);
-
-var resultsPanel = ui.Panel();
 panel.add(resultsPanel);
 
-// 3. قاعدة بيانات الملوثات والحدود الطبيعية
+// 3. قاعدة بيانات الملوثات والحدود الطبيعية (المرجعية العالمية)
 var pollutants = {
   'NO2': {id: 'COPERNICUS/S5P/OFFL/L3_NO2', band: 'tropospheric_NO2_column_number_density', limit: 0.0001, unit: 'mol/m²'},
   'CO': {id: 'COPERNICUS/S5P/OFFL/L3_CO', band: 'CO_column_number_density', limit: 0.03, unit: 'mol/m²'},
@@ -64,75 +79,91 @@ var pollutants = {
 // 4. وظيفة التحليل الشامل
 function runGlobalAnalysis(dateStr) {
   var layers = Map.drawingTools().layers();
-  if (layers.length() === 0) { alert('ارسم منطقة أولاً!'); return; }
+  if (layers.length() === 0) { alert('من فضلك ارسم منطقة (Polygon) على الخريطة أولاً!'); return; }
   
-  resultsPanel.clear();
-  resultsPanel.add(ui.Label('جاري تحليل كافة المواد... (قد يستغرق لحظات)'));
+  resultsPanel.add(ui.Label('⏳ جاري المعالجة الرقمية واستعلام الأقمار الصناعية...'));
   
   var roi = layers.get(layers.length() - 1).getEeObject();
   var start = ee.Date(dateStr);
   
-  // ترويسة الجدول
+  // ترويسة الجدول بتنسيق أنيق
+  var tablePanel = ui.Panel({
+    style: {border: '1px solid #eee', padding: '5px', backgroundColor: '#f9f9f9'}
+  });
+  
   var header = ui.Panel([
-    ui.Label('المادة', {fontWeight: 'bold', width: '80px'}),
-    ui.Label('النتيجة', {fontWeight: 'bold', width: '100px'}),
-    ui.Label('الطبيعي', {fontWeight: 'bold', width: '100px'})
+    ui.Label('المادة', {fontWeight: 'bold', width: '80px', color: '#555'}),
+    ui.Label('النتيجة', {fontWeight: 'bold', width: '120px', color: '#555'}),
+    ui.Label('الحد الآمن', {fontWeight: 'bold', width: '100px', color: '#555'})
   ], ui.Panel.Layout.Flow('horizontal'));
   
-  var tablePanel = ui.Panel([header]);
+  tablePanel.add(header);
 
   Object.keys(pollutants).forEach(function(key) {
     var p = pollutants[key];
-    var img = ee.ImageCollection(p.id)
+    var col = ee.ImageCollection(p.id)
       .filterBounds(roi)
-      .filterDate(start, start.advance(1, 'month'))
-      .select(p.band).mean();
+      .filterDate(start, start.advance(1, 'month'));
+    
+    var img = col.select(p.band).mean();
     
     var stats = img.reduceRegion({
       reducer: ee.Reducer.mean(),
       geometry: roi,
-      scale: key === 'CO2' ? 10000 : 1000
+      scale: key === 'CO2' ? 10000 : 1000,
+      bestEffort: true
     });
 
     stats.evaluate(function(result) {
-      if (!result || !result[p.band]) return;
+      if (!result || result[p.band] === null) {
+        tablePanel.add(ui.Label(key + ': لا توجد بيانات لهذا التاريخ', {fontSize: '11px', color: 'gray'}));
+        return;
+      }
+      
       var val = result[p.band];
       var percentage = (val / p.limit) * 100;
       
-      // اختيار اللون
-      var color = 'green';
-      if (percentage > 85) color = '#DAA520';
-      if (percentage > 115) color = 'red';
+      // منطق اختيار الألوان (نظام الإشارة الضوئية)
+      var statusColor = '#27ae60'; // أخضر
+      if (percentage > 90) statusColor = '#f39c12'; // برتقالي
+      if (percentage > 110) statusColor = '#e74c3c'; // أحمر
 
       var row = ui.Panel([
-        ui.Label(key, {width: '80px'}),
-        ui.Label(val.toFixed(key === 'CH4' || key === 'CO2' ? 1 : 6), {width: '100px', color: color, fontWeight: 'bold'}),
-        ui.Label(p.limit.toString(), {width: '100px', color: '#666'})
-      ], ui.Panel.Layout.Flow('horizontal'));
+        ui.Label(key, {width: '80px', fontWeight: 'bold'}),
+        ui.Label(val.toFixed(key === 'CH4' || key === 'CO2' ? 1 : 6), {width: '120px', color: statusColor, fontWeight: 'bold'}),
+        ui.Label(p.limit.toString(), {width: '100px', color: '#7f8c8d', fontSize: '12px'})
+      ], ui.Panel.Layout.Flow('horizontal'), {margin: '2px 0'});
       
       tablePanel.add(row);
     });
   });
 
   resultsPanel.clear();
-  resultsPanel.add(ui.Label('--- جدول جودة الهواء للمنطقة ---', {fontWeight: 'bold'}));
+  resultsPanel.add(ui.Label('✅ تقرير جودة الهواء المحدث:', {fontWeight: 'bold', color: '#2c3e50'}));
   resultsPanel.add(tablePanel);
   
-  // عرض NO2 كخريطة حرارية افتراضية
-  var no2Img = ee.ImageCollection(pollutants.NO2.id).filterBounds(roi).filterDate(start, start.advance(14, 'day')).select(pollutants.NO2.band).mean().clip(roi);
+  // عرض NO2 كخريطة بصرية فورية
+  var visualImg = ee.ImageCollection(pollutants.NO2.id)
+    .filterBounds(roi)
+    .filterDate(start, start.advance(1, 'month'))
+    .select(pollutants.NO2.band).mean().clip(roi);
+    
   Map.layers().reset();
-  Map.addLayer(no2Img, {min: 0, max: 0.0002, palette: ['green', 'yellow', 'red']}, 'خريطة NO2');
+  Map.addLayer(visualImg, {min: 0, max: 0.0002, palette: ['#313695', '#fee090', '#d73027']}, 'تركيز NO2 الحالي');
   Map.centerObject(roi, 10);
 }
 
-// 5. دليل الألوان
-var legend = ui.Panel({style: {position: 'bottom-right', padding: '8px 15px'}});
-legend.add(ui.Label('مستوى التلوث'));
+// 5. دليل الألوان التوضيحي
+var legend = ui.Panel({style: {position: 'bottom-right', padding: '10px'}});
+legend.add(ui.Label('دليل مستوى التلوث', {fontWeight: 'bold'}));
 var makeRow = function(color, name) {
-  var colorBox = ui.Label({style: {backgroundColor: color, padding: '8px', margin: '0 0 4px 0'}});
-  return ui.Panel([colorBox, ui.Label(name, {margin: '0 0 4px 6px'})], ui.Panel.Layout.Flow('horizontal'));
+  var colorBox = ui.Label({style: {backgroundColor: color, padding: '8px', margin: '0 0 4px 0', border: '0.5px solid #ccc'}});
+  return ui.Panel([colorBox, ui.Label(name, {margin: '0 0 4px 6px', fontSize: '12px'})], ui.Panel.Layout.Flow('horizontal'));
 };
-legend.add(makeRow('green', 'آمن'));
-legend.add(makeRow('#DAA520', 'متوسط'));
-legend.add(makeRow('red', 'خطر'));
+legend.add(makeRow('#27ae60', 'نطاق آمن (ضمن الحدود)'));
+legend.add(makeRow('#f39c12', 'تحذير (يقترب من الحد)'));
+legend.add(makeRow('#e74c3c', 'خطر (تجاوز الحدود المسموحة)'));
 Map.add(legend);
+
+// تحسين مظهر الخريطة
+Map.setOptions('HYBRID');
